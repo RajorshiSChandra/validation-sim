@@ -1,0 +1,4 @@
+beam_paths:
+  0: '/ilifu/astro/projects/hera/HERA-Beams/NicolasFagnoniBeams/NF_HERA_Vivaldi_efield_beam.fits'
+telescope_location: (-30.72152612068957, 21.428303826863015, 1051.6900000218302)
+telescope_name: HERA

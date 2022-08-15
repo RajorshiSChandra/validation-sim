@@ -1,0 +1,386 @@
+Timer unit: 1e-06 s
+
+Total time: 708.298 s
+File: /ilifu/astro/projects/hera/smurray/miniconda3/envs/h4c/lib/python3.10/site-packages/hera_sim/visibilities/vis_cpu.py
+Function: simulate at line 291
+
+Line #      Hits         Time  Per Hit   % Time  Line Contents
+==============================================================
+   291                                               def simulate(self, data_model):
+   292                                                   """
+   293                                                   Calls :func:vis_cpu to perform the visibility calculation.
+   294                                           
+   295                                                   Returns
+   296                                                   -------
+   297                                                   array_like of self._complex_dtype
+   298                                                       Visibilities. Shape=self.uvdata.data_array.shape.
+   299                                                   """
+   300         1          9.0      9.0      0.0          polarized = self._check_if_polarized(data_model)
+   301         1        115.0    115.0      0.0          feed = self.get_feed(data_model.uvdata)
+   302                                           
+   303                                                   # Setup MPI info if enabled
+   304         1          1.0      1.0      0.0          if self.mpi_comm is not None:
+   305                                                       myid = self.mpi_comm.Get_rank()
+   306                                                       nproc = self.mpi_comm.Get_size()
+   307                                           
+   308         1          1.0      1.0      0.0          if self.correct_source_positions:
+   309                                                       # TODO: check if this is the right time to be using...
+   310         2     161217.0  80608.5      0.0              ra, dec = self.correct_point_source_pos(
+   311         1        285.0    285.0      0.0                  data_model, obstime=Time(data_model.uvdata.time_array[0], format="jd")
+   312                                                       )
+   313                                                   else:
+   314                                                       ra, dec = data_model.sky_model.ra, data_model.sky_model.dec
+   315                                           
+   316         1       2837.0   2837.0      0.0          crd_eq = convs.point_source_crd_eq(ra, dec)
+   317                                           
+   318                                                   # Convert equatorial to topocentric coords
+   319         1        147.0    147.0      0.0          eq2tops = self.get_eq2tops(data_model.uvdata, data_model.lsts)
+   320                                           
+   321                                                   # The following are antenna positions in the order that they are
+   322                                                   # in the uvdata.data_array
+   323         1       1770.0   1770.0      0.0          active_antpos, ant_list = data_model.uvdata.get_ENU_antpos(pick_data_ants=True)
+   324                                           
+   325                                                   # Get pixelized beams if required
+   326         2       1101.0    550.5      0.0          beam_list = [
+   327                                                       convs.prepare_beam(
+   328                                                           data_model.beams[data_model.beam_ids[name]],
+   329                                                           polarized=polarized,
+   330                                                           use_feed=feed,
+   331                                                       )
+   332         2          3.0      1.5      0.0              for number, name in zip(
+   333         1          5.0      5.0      0.0                  data_model.uvdata.antenna_numbers, data_model.uvdata.antenna_names
+   334                                                       )
+   335                                                       if number in ant_list
+   336                                                   ]
+   337                                           
+   338                                                   # Get all the polarizations required to be simulated.
+   339         2        412.0    206.0      0.0          req_pols = self._get_req_pols(
+   340         1          2.0      2.0      0.0              data_model.uvdata, data_model.beams[0], polarized=polarized
+   341                                                   )
+   342                                           
+   343                                                   # Empty visibility array
+   344         1        180.0    180.0      0.0          visfull = np.zeros_like(data_model.uvdata.data_array, dtype=self._complex_dtype)
+   345                                           
+   346         2          9.0      4.5      0.0          for i, freq in enumerate(data_model.freqs):
+   347                                                       # Divide tasks between MPI workers if needed
+   348         1          2.0      2.0      0.0              if self.mpi_comm is not None and i % nproc != myid:
+   349                                                           continue
+   350                                           
+   351                                                       # Call vis_cpu function to simulate visibilities
+   352         2  706599884.0 353299942.0     99.8              vis = self._vis_cpu(
+   353         1          1.0      1.0      0.0                  antpos=active_antpos,
+   354         1          1.0      1.0      0.0                  freq=freq,
+   355         1          1.0      1.0      0.0                  eq2tops=eq2tops,
+   356         1          1.0      1.0      0.0                  crd_eq=crd_eq,
+   357         1        387.0    387.0      0.0                  I_sky=data_model.sky_model.stokes[0, i].to("Jy").value,
+   358         1          2.0      2.0      0.0                  beam_list=beam_list,
+   359         1          2.0      2.0      0.0                  precision=self._precision,
+   360         1          1.0      1.0      0.0                  polarized=polarized,
+   361                                                       )
+   362                                           
+   363         2    1529709.0 764854.5      0.2              self._reorder_vis(
+   364         1         21.0     21.0      0.0                  req_pols, data_model.uvdata, visfull[:, 0, i], vis, ant_list, polarized
+   365                                                       )
+   366                                           
+   367                                                   # Reduce visfull array if in MPI mode
+   368         1          7.0      7.0      0.0          if self.mpi_comm is not None:
+   369                                                       visfull = self._reduce_mpi(visfull, myid)
+   370                                           
+   371         1          1.0      1.0      0.0          return visfull
+
+Total time: 539.757 s
+File: /ilifu/astro/projects/hera/smurray/miniconda3/envs/h4c/lib/python3.10/site-packages/vis_cpu/cpu.py
+Function: _wrangle_beams at line 26
+
+Line #      Hits         Time  Per Hit   % Time  Line Contents
+==============================================================
+    26                                           def _wrangle_beams(
+    27                                               beam_idx: np.ndarray,
+    28                                               beam_list: list[UVBeam],
+    29                                               polarized: bool,
+    30                                               nant: int,
+    31                                               freq: float,
+    32                                           ) -> tuple[list[UVBeam], int, np.ndarray]:
+    33                                               """Perform all the operations and checks on the input beams.
+    34                                           
+    35                                               Checks that the beam indices match the number of antennas, pre-interpolates to the
+    36                                               given frequency, and checks that the beam type is appropriate for the given
+    37                                               polarization
+    38                                           
+    39                                               Parameters
+    40                                               ----------
+    41                                               beam_idx
+    42                                                   Index of the beam to use for each antenna.
+    43                                               beam_list
+    44                                                   List of unique beams.
+    45                                               polarized
+    46                                                   Whether to use beam polarization
+    47                                               nant
+    48                                                   Number of antennas
+    49                                               freq
+    50                                                   Frequency to interpolate beam to.
+    51                                               """
+    52                                               # Get the number of unique beams
+    53         1          2.0      2.0      0.0      nbeam = len(beam_list)
+    54                                           
+    55                                               # Check the beam indices
+    56         1          2.0      2.0      0.0      if beam_idx is None:
+    57         1          1.0      1.0      0.0          if nbeam == 1:
+    58                                                       beam_idx = np.zeros(nant, dtype=int)
+    59         1          2.0      2.0      0.0          elif nbeam == nant:
+    60         1          9.0      9.0      0.0              beam_idx = np.arange(nant, dtype=int)
+    61                                                   else:
+    62                                                       raise ValueError(
+    63                                                           "If number of beams provided is not 1 or nant, beam_idx must be provided."
+    64                                                       )
+    65                                               else:
+    66                                                   assert beam_idx.shape == (nant,), "beam_idx must be length nant"
+    67                                                   assert all(
+    68                                                       0 <= i < nbeam for i in beam_idx
+    69                                                   ), "beam_idx contains indices greater than the number of beams"
+    70                                           
+    71                                               # make sure we interpolate to the right frequency first.
+    72         2  539756773.0 269878386.5    100.0      beam_list = [
+    73                                                   bm.interp(freq_array=np.array([freq]), new_object=True, run_check=False)
+    74                                                   if isinstance(bm, UVBeam)
+    75                                                   else bm
+    76         1          1.0      1.0      0.0          for bm in beam_list
+    77                                               ]
+    78                                           
+    79         1        604.0    604.0      0.0      if polarized and any(b.beam_type != "efield" for b in beam_list):
+    80                                                   raise ValueError("beam type must be efield if using polarized=True")
+    81         1          1.0      1.0      0.0      elif not polarized and any(
+    82                                                   (
+    83                                                       b.beam_type != "power"
+    84                                                       or getattr(b, "Npols", 1) > 1
+    85                                                       or b.polarization_array[0] not in [-5, -6]
+    86                                                   )
+    87                                                   for b in beam_list
+    88                                               ):
+    89                                                   raise ValueError(
+    90                                                       "beam type must be power and have only one pol (either xx or yy) if polarized=False"
+    91                                                   )
+    92                                           
+    93         1          1.0      1.0      0.0      return beam_list, nbeam, beam_idx
+
+Total time: 158.847 s
+File: /ilifu/astro/projects/hera/smurray/miniconda3/envs/h4c/lib/python3.10/site-packages/vis_cpu/cpu.py
+Function: _evaluate_beam_cpu at line 96
+
+Line #      Hits         Time  Per Hit   % Time  Line Contents
+==============================================================
+    96                                           def _evaluate_beam_cpu(
+    97                                               A_s: np.ndarray,
+    98                                               beam_list: list[UVBeam],
+    99                                               tx: np.ndarray,
+   100                                               ty: np.ndarray,
+   101                                               polarized: bool,
+   102                                               freq: float,
+   103                                               spline_opts: dict | None = None,
+   104                                           ):
+   105                                               """Evaluate the beam on the CPU.
+   106                                           
+   107                                               This function will either interpolate the beam to the given coordinates tx, ty,
+   108                                               or evaluate the beam there if it is an analytic beam.
+   109                                           
+   110                                               Parameters
+   111                                               ----------
+   112                                               A_s
+   113                                                   Array of shape (nax, nfeed, nbeam, nsrcs_up) that will be filled with beam
+   114                                                   values.
+   115                                               beam_list
+   116                                                   List of unique beams.
+   117                                               tx, ty
+   118                                                   Coordinates to evaluate the beam at, in sin-projection.
+   119                                               polarized
+   120                                                   Whether to use beam polarization.
+   121                                               freq
+   122                                                   Frequency to interpolate beam to.
+   123                                               spline_opts
+   124                                                   Extra options to pass to the RectBivariateSpline class when interpolating.
+   125                                               """
+   126                                               # Primary beam pattern using direct interpolation of UVBeam object
+   127         3      23712.0   7904.0      0.0      az, za = conversions.enu_to_az_za(enu_e=tx, enu_n=ty, orientation="uvbeam")
+   128       381       2400.0      6.3      0.0      for i, bm in enumerate(beam_list):
+   129       378        421.0      1.1      0.0          kw = (
+   130       756        982.0      1.3      0.0              {
+   131       378        223.0      0.6      0.0                  "reuse_spline": True,
+   132       378        166.0      0.4      0.0                  "check_azza_domain": False,
+   133       378        181.0      0.5      0.0                  "spline_opts": spline_opts,
+   134                                                       }
+   135       378       1283.0      3.4      0.0              if isinstance(bm, UVBeam)
+   136                                                       else {}
+   137                                                   )
+   138                                           
+   139      1512   92769982.0  61355.8     58.4          interp_beam = bm.interp(
+   140       378        256.0      0.7      0.0              az_array=az,
+   141       378        234.0      0.6      0.0              za_array=za,
+   142       378      14500.0     38.4      0.0              freq_array=np.atleast_1d(freq),
+   143       378        182.0      0.5      0.0              **kw,
+   144       378        879.0      2.3      0.0          )[0]
+   145                                           
+   146       378        268.0      0.7      0.0          if polarized:
+   147       378       1092.0      2.9      0.0              interp_beam = interp_beam[:, 0, :, 0, :]
+   148                                                   else:
+   149                                                       # Here we have already asserted that the beam is a power beam and
+   150                                                       # has only one polarization, so we just evaluate that one.
+   151                                                       interp_beam = np.sqrt(interp_beam[0, 0, 0, 0, :])
+   152                                           
+   153       378    2437091.0   6447.3      1.5          A_s[:, :, i] = interp_beam
+   154                                           
+   155                                                   # Check for invalid beam values
+   156       378   63592708.0 168234.7     40.0          if np.any(np.isinf(A_s)) or np.any(np.isnan(A_s)):
+   157                                                       raise ValueError("Beam interpolation resulted in an invalid value")
+   158                                           
+   159         3          3.0      1.0      0.0      return A_s
+
+Total time: 706.519 s
+File: /ilifu/astro/projects/hera/smurray/miniconda3/envs/h4c/lib/python3.10/site-packages/vis_cpu/cpu.py
+Function: vis_cpu at line 184
+
+Line #      Hits         Time  Per Hit   % Time  Line Contents
+==============================================================
+   184                                           @profile
+   185                                           def vis_cpu(
+   186                                               *,
+   187                                               antpos: np.ndarray,
+   188                                               freq: float,
+   189                                               eq2tops: np.ndarray,
+   190                                               crd_eq: np.ndarray,
+   191                                               I_sky: np.ndarray,
+   192                                               beam_list: Sequence[UVBeam | Callable] | None,
+   193                                               precision: int = 1,
+   194                                               polarized: bool = False,
+   195                                               beam_idx: np.ndarray | None = None,
+   196                                               beam_spline_opts: dict | None = None,
+   197                                           ):
+   198                                               """
+   199                                               Calculate visibility from an input intensity map and beam model.
+   200                                           
+   201                                               Parameters
+   202                                               ----------
+   203                                               antpos : array_like
+   204                                                   Antenna position array. Shape=(NANT, 3).
+   205                                               freq : float
+   206                                                   Frequency to evaluate the visibilities at [GHz].
+   207                                               eq2tops : array_like
+   208                                                   Set of 3x3 transformation matrices to rotate the RA and Dec
+   209                                                   cosines in an ECI coordinate system (see `crd_eq`) to
+   210                                                   topocentric ENU (East-North-Up) unit vectors at each
+   211                                                   time/LST/hour angle in the dataset.
+   212                                                   Shape=(NTIMES, 3, 3).
+   213                                               crd_eq : array_like
+   214                                                   Cartesian unit vectors of sources in an ECI (Earth Centered
+   215                                                   Inertial) system, which has the Earth's center of mass at
+   216                                                   the origin, and is fixed with respect to the distant stars.
+   217                                                   The components of the ECI vector for each source are:
+   218                                                   (cos(RA) cos(Dec), sin(RA) cos(Dec), sin(Dec)).
+   219                                                   Shape=(3, NSRCS).
+   220                                               I_sky : array_like
+   221                                                   Intensity distribution of sources/pixels on the sky, assuming intensity
+   222                                                   (Stokes I) only. The Stokes I intensity will be split equally between
+   223                                                   the two linear polarization channels, resulting in a factor of 0.5 from
+   224                                                   the value inputted here. This is done even if only one polarization
+   225                                                   channel is simulated.
+   226                                                   Shape=(NSRCS,).
+   227                                               beam_list : list of UVBeam, optional
+   228                                                   If specified, evaluate primary beam values directly using UVBeam
+   229                                                   objects instead of using pixelized beam maps. Only one of ``bm_cube`` and
+   230                                                   ``beam_list`` should be provided.Note that if `polarized` is True,
+   231                                                   these beams must be efield beams, and conversely if `polarized` is False they
+   232                                                   must be power beams with a single polarization (either XX or YY).
+   233                                               precision : int, optional
+   234                                                   Which precision level to use for floats and complex numbers.
+   235                                                   Allowed values:
+   236                                                   - 1: float32, complex64
+   237                                                   - 2: float64, complex128
+   238                                               polarized : bool, optional
+   239                                                   Whether to simulate a full polarized response in terms of nn, ne, en,
+   240                                                   ee visibilities. See Eq. 6 of Kohn+ (arXiv:1802.04151) for notation.
+   241                                                   Default: False.
+   242                                               beam_idx
+   243                                                   Optional length-NANT array specifying a beam index for each antenna.
+   244                                                   By default, either a single beam is assumed to apply to all antennas or
+   245                                                   each antenna gets its own beam.
+   246                                           
+   247                                               Returns
+   248                                               -------
+   249                                               vis : array_like
+   250                                                   Simulated visibilities. If `polarized = True`, the output will have
+   251                                                   shape (NTIMES, NFEED, NFEED, NANTS, NANTS), otherwise it will have
+   252                                                   shape (NTIMES, NANTS, NANTS).
+   253                                               """
+   254         2         23.0     11.5      0.0      nax, nfeed, nant, ntimes = _validate_inputs(
+   255         1          1.0      1.0      0.0          precision, polarized, antpos, eq2tops, crd_eq, I_sky
+   256                                               )
+   257                                           
+   258         1          2.0      2.0      0.0      if precision == 1:
+   259                                                   real_dtype = np.float32
+   260                                                   complex_dtype = np.complex64
+   261                                               else:
+   262         1          2.0      2.0      0.0          real_dtype = np.float64
+   263         1          2.0      2.0      0.0          complex_dtype = np.complex128
+   264                                           
+   265         2  539757484.0 269878742.0     76.4      beam_list, nbeam, beam_idx = _wrangle_beams(
+   266         1          2.0      2.0      0.0          beam_idx, beam_list, polarized, nant, freq
+   267                                               )
+   268                                           
+   269                                               # Intensity distribution (sqrt) and antenna positions. Does not support
+   270                                               # negative sky. Factor of 0.5 accounts for splitting Stokes I between
+   271                                               # polarization channels
+   272         1       1323.0   1323.0      0.0      Isqrt = np.sqrt(0.5 * I_sky).astype(real_dtype)
+   273         1         13.0     13.0      0.0      antpos = antpos.astype(real_dtype)
+   274                                           
+   275         1          8.0      8.0      0.0      ang_freq = 2.0 * np.pi * freq
+   276                                           
+   277                                               # Zero arrays: beam pattern, visibilities, delays, complex voltages
+   278         1        272.0    272.0      0.0      vis = np.zeros((ntimes, nfeed * nant, nfeed * nant), dtype=complex_dtype)
+   279         1       2857.0   2857.0      0.0      crd_eq = crd_eq.astype(real_dtype)
+   280                                           
+   281                                               # Loop over time samples
+   282         4         79.0     19.8      0.0      for t, eq2top in enumerate(eq2tops.astype(real_dtype)):
+   283                                                   # Dot product converts ECI cosines (i.e. from RA and Dec) into ENU
+   284                                                   # (topocentric) cosines, with (tx, ty, tz) = (e, n, u) components
+   285                                                   # relative to the center of the array
+   286         3      16026.0   5342.0      0.0          tx, ty, tz = crd_top = np.dot(eq2top, crd_eq)
+   287         3        838.0    279.3      0.0          above_horizon = tz > 0
+   288         3       4044.0   1348.0      0.0          tx = tx[above_horizon]
+   289         3       3743.0   1247.7      0.0          ty = ty[above_horizon]
+   290         3         10.0      3.3      0.0          nsrcs_up = len(tx)
+   291         3       4492.0   1497.3      0.0          isqrt = Isqrt[above_horizon]
+   292                                           
+   293         3       7527.0   2509.0      0.0          v = np.zeros((nant, nsrcs_up), dtype=complex_dtype)
+   294                                           
+   295         3      55706.0  18568.7      0.0          A_s = np.zeros((nax, nfeed, nbeam, nsrcs_up), dtype=complex_dtype)
+   296                                           
+   297         6  158854963.0 26475827.2     22.5          _evaluate_beam_cpu(
+   298         3          3.0      1.0      0.0              A_s,
+   299         3          3.0      1.0      0.0              beam_list,
+   300         3          2.0      0.7      0.0              tx,
+   301         3          3.0      1.0      0.0              ty,
+   302         3          4.0      1.3      0.0              polarized,
+   303         3          4.0      1.3      0.0              freq,
+   304         3          3.0      1.0      0.0              spline_opts=beam_spline_opts,
+   305                                                   )
+   306         3         35.0     11.7      0.0          A_s = A_s.transpose((1, 2, 0, 3))  # Now (Nfeed, Nbeam, Nax, Nsrc)
+   307                                           
+   308         3        142.0     47.3      0.0          _log_array("beam", A_s)
+   309                                           
+   310                                                   # Calculate delays, where tau = (b * s) / c
+   311         3     169977.0  56659.0      0.0          tau = np.dot(antpos / c.value, crd_top[:, above_horizon])
+   312         3         58.0     19.3      0.0          _log_array("tau", tau)
+   313                                           
+   314         6    5206181.0 867696.8      0.7          v = _get_antenna_vis(
+   315         3         12.0      4.0      0.0              A_s, ang_freq, tau, isqrt, beam_idx, nfeed, nant, nax, nsrcs_up
+   316                                                   )
+   317         3         53.0     17.7      0.0          _log_array("vant", v)
+   318                                           
+   319                                                   # Compute visibilities using product of complex voltages (upper triangle).
+   320         3    2433209.0 811069.7      0.3          vis[t] = v.conj().dot(v.T)
+   321         3        127.0     42.3      0.0          _log_array("vis", vis[t])
+   322                                           
+   323         1         16.0     16.0      0.0      vis.shape = (ntimes, nfeed, nant, nfeed, nant)
+   324                                           
+   325                                               # Return visibilities with or without multiple polarization channels
+   326         1          7.0      7.0      0.0      return vis.transpose((0, 1, 3, 2, 4)) if polarized else vis[:, 0, :, 0, :]
+

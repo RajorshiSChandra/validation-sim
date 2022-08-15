@@ -1,0 +1,9 @@
+config_files/obsparams/*
+*~
+logs/*
+outputs/*
+sky_models/*.fits
+#sky_models/gleam_like/*
+sky_models/ptsrc/*
+**/.ipynb_checkpoints
+**/__pycache__

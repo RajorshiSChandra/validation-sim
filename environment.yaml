@@ -1,0 +1,20 @@
+name: h4c
+channels:
+  - conda-forge
+  - default
+dependencies:
+  - python=3.10
+  - pip
+  - matplotlib
+  - pandas
+  - scipy
+  - numpy
+  - libblas[build=*mkl]
+  - h5py
+  - astropy
+  - pyuvdata
+  - pip:
+    - pyuvsim
+    - vis_cpu[gpu]
+    - git+https://github.com/hera-team/hera_sim@viscpu-api
+    - line_profiler
