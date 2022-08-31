@@ -1,26 +1,36 @@
 #!/bin/bash
 
 model=${1}
-decimate=1
+ntimes=17280
 
 if [ ! -z "$2" ]
   then
-    decimate=${2}
+    ntimes=${2}
 fi
 
-echo "CREATING MODEL: $model"
+echo "CREATING MODEL $model with $ntimes times"
+
+
+partition="Main"
+if [[ "$(hostname)" == *"agave"* ]]
+then
+    partition="htc"
+fi
 
 sbatch <<EOT
 #!/bin/bash
 #SBATCH -o logs/makeparams/%j.out
+#SBATCH -p ${partition}
+#SBATCH -t 00:30
+#SBATCH -N 1
 
 cd config_files
 
-conda activate hera
+source ~/miniconda3/bin/activate
+conda activate h4c
 echo $(which python)
 
-# build_makeflow_from_config.py is in hera_opm
-python make_obsparams_per_freq.py ${model} --decimate ${decimate}
+python make_obsparams_per_freq.py ${model} --ntimes ${ntimes}
 
 cd ..
 EOT

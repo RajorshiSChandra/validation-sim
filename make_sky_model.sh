@@ -1,22 +1,52 @@
 #!/bin/bash
 
 model=${1}
-njobs=${2}
+ncores=1
+shift
+
+
+nside=""
+
+while [ $# -ne 0 ]
+do
+    arg="$1"
+    case "$arg" in
+        --nside)
+            nside=${2};
+            shift
+            ;;
+	--ncores)
+	    ncores=${2};
+	    shift
+	    ;;
+    esac
+    shift
+done
+
+partition="Main"
+if [[ "$(hostname)" == *"agave2"* ]]
+then
+    partition="htc"
+fi
+
 
 echo "CREATING MODEL: $model"
 
 sbatch <<EOT
 #!/bin/bash
 #SBATCH -o logs/skymodel/%j.out
-#SBATCH -c ${njobs}
+#SBATCH -c ${ncores}
+#SBATCH -p ${partition}
+#SBATCH -t 00:30
+#SBATCH -N 1
 
 cd sky_models
 
-conda activate hera
+source ~/miniconda3/bin/activate
+conda activate h4c
 echo $(which python)
 
-# build_makeflow_from_config.py is in hera_opm
-python make_${model}_model.py
+python make_${model}_model.py ${nside}
 
 cd ..
 EOT

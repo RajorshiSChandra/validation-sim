@@ -1,19 +1,24 @@
 from multiprocessing import Pool
 import argparse
-import healpy as hp
-import numpy as np
 import os
 
+import healpy as hp
+import numpy as np
 from pyradiosky import SkyModel
 from astropy import units as u
 from pygdsm import GlobalSkyModel
 
-    
+import utils
+
+# H4C frequencies
+FREQ_ARRAY = utils.freqs
+
 def make_confusion_map(f, nside=128):
     """Make a confusion map at a given frequency. Output NSIDE=128."""
     # Load source confusion data
     ref_freq = 154e6
-    data_file = './gleam_like/gleam_like_fainter.npz'
+    # TODO: fix path here
+    data_file = f'{utils.SKYDIR}/gleam_like/gleam_like_fainter.npz'
     
     with np.load(data_file) as data:
         flux_ref = data['flux_density']
@@ -66,7 +71,7 @@ def make_gsm_map(f, smooth=True, nside=128):
     # theta_c, phi_c = coordrotate(theta_g, phi_g)
     # ipix_c = hp.ang2pix(m_nside, theta_c, phi_c)
     # gsm_map = gsm_map[ipix_c]
-    --------------------------------------------------
+    # --------------------------------------------------
 
     # Smooth with 1 deg Gaussian
     if smooth:
@@ -87,26 +92,26 @@ def make_map(fch):
     f = FREQ_ARRAY[fch]
     
     print(f"{os.getpid()}: getting gsm ")
-    gsm_map = make_gsm_map(f, nside=OUT_NSIDE)
+    gsm_map = make_gsm_map(f, nside=out_nside)
 
     print(f"{os.getpid()}: getting confusion map ")
-    confusion_map = make_confusion_map(f, nside=OUT_NSIDE)
+    confusion_map = make_confusion_map(f, nside=out_nside)
     # Save maps for debugging
-    np.save(f'gsm2008_smooth1deg_nside128_fch{fch:04d}.npy', gsm_map)
-    np.save(f'gleam_like_confusion_nside128_fch{fch:04d}..npy', confusion_map)
+    # np.save(f'gsm2008_smooth1deg_nside128_fch{fch:04d}.npy', gsm_map)
+    # np.save(f'gleam_like_confusion_nside128_fch{fch:04d}..npy', confusion_map)
     diffuse_map = gsm_map + confusion_map
     
     # Build a SkyModel object
     # The GSM map is Stoke I in Kelvin
     # Output is per frequency, so the second dimension is 1.
-    stokes = np.zeros((4, 1, OUT_NPIX)) * u.K
+    stokes = np.zeros((4, 1, out_npix)) * u.K
     stokes[0, :, :] = diffuse_map * u.K
     # SkyModel parameters.
     # The frame parameter defines the coordinate frame of the map.
     params = {
         'component_type': 'healpix',
-        'nside': OUT_NSIDE,
-        'hpx_inds': np.arange(OUT_NPIX),
+        'nside': out_nside,
+        'hpx_inds': np.arange(out_npix),
         'hpx_order': 'ring',
         'spectral_type': 'full',
         'freq_array': f * u.Hz,
@@ -122,30 +127,19 @@ def make_map(fch):
     # Transform coordinates of the GSM pixels from Galactic to ICRS.
     diffuse_model.transform_to('icrs')
 
-    diffuse_model.write_skyh5(f'{OUT_DIR}/diffuse_nside{OUT_NSIDE}_fch{fch:04d}.skyh5',
-                               clobber=True)
+    utils.write(diffuse_model, f'diffuse_nside{out_nside}', fch)
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Create GSM + Diffuse maps.')
     parser.add_argument('--out_nside', type=int, default=128,
                         help='output NSIDE of the healpix maps.')
-    parser.add_argument('--freq_chans', type=int, nargs='+', default=None,
-                        help='Frequency channels to make maps. Default is None, which will generate maps for all 1024 frequency channels.')    
-    parser.add_argument('--out_dir', type=str, default='./',
-                        help='Output directory. Output files will be "out_dir/diffuse_nside<out_nside>_fch????.skyh5".')
     args = parser.parse_args()
     
-    # Frequency array is fixed to HERA band
-    FREQ_ARRAY = np.arange(1e8, 2e8, 97656.25)
-    OUT_NSIDE = args.out_nside
-    OUT_NPIX = hp.nside2npix(OUT_NSIDE)
-    OUT_DIR = args.out_dir
+    out_nside = args.out_nside
+    out_npix = hp.nside2npix(out_nside)
     
-    if args.freq_chans is None:
-        fchs = np.arange(FREQ_ARRAY.size)
-    else:
-        fchs = np.atleast_1d(np.array(args.freq_chans))
+    out_dir = utils.SKYDIR / f'diffuse_nside{out_nside}'
 
     with Pool() as p:
-        p.map(make_map, fchs)
+        p.map(make_map, range(FREQ_ARRAY.size))
