@@ -11,7 +11,7 @@ parser = argparse.ArgumentParser(description='Create a set of obsparams for a gi
 parser.add_argument('sky_model', type=str,
                     help='the sky model for which to create obsparams')
 
-parser.add_argument("--decimate", type=int, help="decimate the times by this amount", default=1)
+parser.add_argument("--ntimes", type=int, help="use this number of times", default=17280)
 
 args = parser.parse_args()
 
@@ -41,7 +41,7 @@ yaml.add_representer(str, quoted_presenter)
 cfg_default = {
     'filing': {
         'outdir': f'{REPODIR}/outputs',
-        'outfile_name': "{sky_model}_{freq}",
+        'outfile_name': "{sky_model}_{freq}_nt{ntimes}",
         'output_format': 'uvh5',
         'clobber': True
     },
@@ -55,22 +55,23 @@ cfg_default = {
     },
     'telescope': {
         'array_layout': f'{THISDIR}/H4C-antennas.csv',
-        'telescope_config_name': f'{THISDIR}/h4c_idr2.1_teleconfig.yaml'
+        'telescope_config_name': f'{THISDIR}/h4c_idr2.1_teleconfig.yaml',
+        'select': {'freq_buffer': 3.0e6}
     },
     'time': {
-        'Ntimes': 17280 // args.decimate,
-        'integration_time': 4.986347833333333 * args.decimate,
+        'Ntimes': args.ntimes,
+        'integration_time': 4.986347833333333,
         'start_time': 2458208.916228965
     }
 }
 
-obsp_dir = THISDIR / 'obsparams' / args.sky_model
+obsp_dir = THISDIR / 'obsparams' / args.sky_model / f"nt{args.ntimes}"
 
 if not obsp_dir.exists():
     obsp_dir.mkdir(parents=True)
     
 for i, f in enumerate(FREQ_ARRAY):
-    outfile_name = cfg_default['filing']['outfile_name'].format(sky_model=args.sky_model, freq=f'_fch{i:04d}')
+    outfile_name = cfg_default['filing']['outfile_name'].format(sky_model=args.sky_model, freq=f'_fch{i:04d}', ntimes=args.ntimes)
     catalog = cfg_default['sources']['catalog'].replace('<FREQ>', f'fch{i:04d}')
     cfg_f = deepcopy(cfg_default)
     cfg_f['filing']['outfile_name'] = outfile_name

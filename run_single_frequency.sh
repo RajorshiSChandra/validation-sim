@@ -11,6 +11,7 @@ profile=""
 nt=17280
 loglevel="WARNING"
 dry=""
+trace=""
 
 while [ $# -ne 0 ]
 do
@@ -31,6 +32,10 @@ do
 	--dry)
 	    dry="--dry-run";
 	    ;;
+	--trace)
+	    loglevel="MEMTRACE";
+	    trace="PYTHONTRACEMALLOC=1";
+	    ;;
     esac
     shift
 done
@@ -47,25 +52,24 @@ then
 fi
 
 
-
+gpu_sbatch=""
 if [ ${gpu} == 1 ]
 then
     echo "Running on GPU"
-    partition=GPU
+    if [[ "$(hostname)" == *"bridges2"* ]]
+    then
+	partition="GPU-shared"
+    else
+	partition=GPU
+    fi
+    gpu_sbatch="#SBATCH --gpus=1"
     settings="visgpu.yaml"
 else
     echo "Running on CPU"
     partition="Main"
     if [[ "$(hostname)" == *"agave"* ]]
     then
-#	partition="htc"
 	partition="serial"
-#	if [[ $nt -gt 7200 ]]
-#	then
-#	    partition="serial"
-#	else
-#	    partition="htc"
-#	fi
     fi
     settings="viscpu.yaml"
 fi
@@ -95,11 +99,12 @@ sbatch <<EOT
 #!/bin/bash
 #SBATCH -o logs/vis/${model}/%j.out
 #SBATCH --job-name=${model}${freq}
-#SBATCH --mem=32GB
+#SBATCH --mem=23GB
 #SBATCH --partition=${partition}
 #SBATCH -c 1
 #SBATCH -t ${runtime}
 #SBATCH -N 1
+${gpu_sbatch}
 
 lscpu
 
@@ -107,7 +112,7 @@ source ~/miniconda3/bin/activate
 conda activate h4c
 echo $(which python)
 
-PYTHONTRACEMALLOC=1 time hera-sim-vis.py ${obsparams} ${settings} --compress --normalize_beams --fix_autos ${profile} --log-level ${loglevel} ${dry}
+${trace} time hera-sim-vis.py ${obsparams} ${settings} --compress --normalize_beams --fix_autos ${profile} --log-level ${loglevel} ${dry}
 EOT
 
 
