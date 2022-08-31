@@ -11,7 +11,7 @@ profile=""
 nt=17280
 loglevel="WARNING"
 dry=""
-trace=""
+trace="time"
 
 while [ $# -ne 0 ]
 do
@@ -34,7 +34,7 @@ do
 	    ;;
 	--trace)
 	    loglevel="MEMTRACE";
-	    trace="PYTHONTRACEMALLOC=1";
+	    trace="PYTHONTRACEMALLOC=1 time";
 	    ;;
     esac
     shift
@@ -44,21 +44,27 @@ echo "Running vis-cpu for the ${model} model in channel $freq"
 
 printf -v padded_freq "%04d" $freq
 
-
 if [[ ${profile} == 1 ]]
 then
+    if [[ ${gpu} == 1 ]]
+    then
+	trace="nvprof"
+    fi
+    
     profile="--profile profiling/${model}-fch${padded_freq}-gpu${gpu}-nt${nt}.profile.txt"
     echo "Running with profiling, with ntimes=${nt}"
 fi
 
 
 gpu_sbatch=""
+module=""
 if [ ${gpu} == 1 ]
 then
     echo "Running on GPU"
     if [[ "$(hostname)" == *"bridges2"* ]]
     then
 	partition="GPU-shared"
+	module="module load cuda"
     else
 	partition=GPU
     fi
@@ -83,16 +89,18 @@ then
 fi
 
 runtime="0-00:30:00"
-if [[ $nt -gt 200 ]]
+if [[ $dry != 1 ]]
 then
-    runtime="0-02:00:00"
-fi
+    if [[ $nt -gt 200 ]]
+    then
+	runtime="0-02:00:00"
+    fi
 
-if [[ $nt -gt 7200 ]]
-then
-    runtime="0-30:00:00"
+    if [[ $nt -gt 7200 ]]
+    then
+	runtime="0-30:00:00"
+    fi
 fi
-
 echo "GOING TO RUN ON ${partition} PARTITION FOR ${runtime}"
 
 sbatch <<EOT
@@ -108,11 +116,12 @@ ${gpu_sbatch}
 
 lscpu
 
+${module}
 source ~/miniconda3/bin/activate
 conda activate h4c
 echo $(which python)
 
-${trace} time hera-sim-vis.py ${obsparams} ${settings} --compress --normalize_beams --fix_autos ${profile} --log-level ${loglevel} ${dry}
+${trace} hera-sim-vis.py ${obsparams} ${settings} --compress --normalize_beams --fix_autos ${profile} --log-level ${loglevel} ${dry}
 EOT
 
 
