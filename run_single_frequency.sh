@@ -12,6 +12,7 @@ nt=17280
 loglevel="WARNING"
 dry=""
 trace="time"
+chunks=1
 
 while [ $# -ne 0 ]
 do
@@ -36,11 +37,14 @@ do
 	    loglevel="MEMTRACE";
 	    trace="PYTHONTRACEMALLOC=1 time";
 	    ;;
+        --chunks)
+	    chunks=${2}; shift;
+	    ;;
     esac
     shift
 done
 
-echo "Running vis-cpu for the ${model} model in channel $freq"
+echo "Running vis-cpu for the ${model} model in channel $freq with time-split $chunks"
 
 printf -v padded_freq "%04d" $freq
 
@@ -80,16 +84,18 @@ else
     settings="viscpu.yaml"
 fi
 
-
-obsparams="config_files/obsparams/${model}/nt${nt}/fch${padded_freq}.yaml"
-if [[ ! -f "$obsparams" ]]
-then
-    echo "No file ${obsparams}!"
-    exit
-fi
+for (( ch=0; ch<$chunks; ch++ ))
+do
+    obsparams="config_files/obsparams/${model}/nt${nt}_spl${chunks}/fch${padded_freq}_chunk${ch}.yaml"
+    if [[ ! -f "$obsparams" ]]
+    then
+	echo "No file ${obsparams}!"
+	exit
+    fi
+done
 
 runtime="0-00:30:00"
-if [[ $dry != 1 ]]
+if [ "${dry}" != "--dry-run" ] && [ ${gpu} != 1 ]
 then
     if [[ $nt -gt 200 ]]
     then
@@ -121,7 +127,13 @@ source ~/miniconda3/bin/activate
 conda activate h4c
 echo $(which python)
 
-${trace} hera-sim-vis.py ${obsparams} ${settings} --compress --normalize_beams --fix_autos ${profile} --log-level ${loglevel} ${dry}
+for (( ch=0; ch<$chunks; ch++ ))
+do
+   echo "Running Time-Chunk ${ch}"
+   obsparams="config_files/obsparams/${model}/nt${nt}_spl${chunks}/fch${padded_freq}_chunk${ch}.yaml"	
+   ${trace} hera-sim-vis.py ${obsparams} ${settings} --compress --normalize_beams --fix_autos ${profile} --log-level ${loglevel} ${dry}   
+done
+
 EOT
 
 

@@ -12,7 +12,7 @@ parser.add_argument('sky_model', type=str,
                     help='the sky model for which to create obsparams')
 
 parser.add_argument("--ntimes", type=int, help="use this number of times", default=17280)
-
+parser.add_argument("--split", type=int, help="split total times into this number of chunks", default=1)
 args = parser.parse_args()
 
 THISDIR = Path(__file__).parent.absolute()
@@ -41,7 +41,7 @@ yaml.add_representer(str, quoted_presenter)
 cfg_default = {
     'filing': {
         'outdir': f'{REPODIR}/outputs',
-        'outfile_name': "{sky_model}_{freq}_nt{ntimes}",
+        'outfile_name': "{sky_model}_{freq}_nt{ntimes}_chunk{chunk}",
         'output_format': 'uvh5',
         'clobber': True
     },
@@ -59,27 +59,30 @@ cfg_default = {
         'select': {'freq_buffer': 3.0e6}
     },
     'time': {
-        'Ntimes': args.ntimes,
+        'Ntimes': args.ntimes // args.split,
         'integration_time': 4.986347833333333,
         'start_time': 2458208.916228965
-    }
+    },
+    'polarization_array': [-5, -7, -8, -6],  # this order makes it fastest to put the vis-cpu data back in.
 }
 
-obsp_dir = THISDIR / 'obsparams' / args.sky_model / f"nt{args.ntimes}"
+obsp_dir = THISDIR / 'obsparams' / args.sky_model / f"nt{args.ntimes}_spl{args.split}"
 
 if not obsp_dir.exists():
     obsp_dir.mkdir(parents=True)
     
 for i, f in enumerate(FREQ_ARRAY):
-    outfile_name = cfg_default['filing']['outfile_name'].format(sky_model=args.sky_model, freq=f'_fch{i:04d}', ntimes=args.ntimes)
-    catalog = cfg_default['sources']['catalog'].replace('<FREQ>', f'fch{i:04d}')
-    cfg_f = deepcopy(cfg_default)
-    cfg_f['filing']['outfile_name'] = outfile_name
-    cfg_f['sources']['catalog'] = catalog
-    cfg_f['freq']['Nfreqs'] = 1
-    cfg_f['freq']['start_freq'] = float(f)
+    for j, t in enumerate(range(args.split)):
+        outfile_name = cfg_default['filing']['outfile_name'].format(sky_model=args.sky_model, freq=f'_fch{i:04d}', ntimes=args.ntimes, chunk=j)
+        catalog = cfg_default['sources']['catalog'].replace('<FREQ>', f'fch{i:04d}')
+        cfg_f = deepcopy(cfg_default)
+        cfg_f['filing']['outfile_name'] = outfile_name
+        cfg_f['sources']['catalog'] = catalog
+        cfg_f['freq']['Nfreqs'] = 1
+        cfg_f['freq']['start_freq'] = float(f)
+        cfg_f['time']['start_time'] = cfg_f['time']['start_time'] + cfg_f['time']['integration_time'] * j*(args.ntimes // args.split) / 86400
+        
+        obsparams_file = f'{obsp_dir}/fch{i:04d}_chunk{j}.yaml'
     
-    obsparams_file = f'{obsp_dir}/fch{i:04d}.yaml'
-    
-    with open(obsparams_file, 'w', ) as stream:
-        yaml.dump(cfg_f, stream, default_flow_style=False, sort_keys=False)
+        with open(obsparams_file, 'w', ) as stream:
+            yaml.dump(cfg_f, stream, default_flow_style=False, sort_keys=False)
