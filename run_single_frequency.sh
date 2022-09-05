@@ -131,7 +131,7 @@ for (( ch=0; ch<$chunks; ch++ ))
 do
    echo "Running Time-Chunk ${ch}"
    obsparams="config_files/obsparams/${model}/nt${nt}_spl${chunks}/fch${padded_freq}_chunk${ch}.yaml"	
-   ${trace} hera-sim-vis.py ${obsparams} ${settings} --compress --normalize_beams --fix_autos ${profile} --log-level ${loglevel} ${dry}   
+   ${trace} hera-sim-vis.py ${obsparams} ${settings} --compress outputs/compression-cache/nt${nt}_chunk${ch}.npy --normalize_beams --fix_autos ${profile} --log-level ${loglevel} ${dry}   
 done
 
 EOT
