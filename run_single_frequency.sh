@@ -13,6 +13,7 @@ loglevel="WARNING"
 dry=""
 trace="time"
 chunks=1
+clobber=0
 
 while [ $# -ne 0 ]
 do
@@ -39,6 +40,9 @@ do
 	    ;;
         --chunks)
 	    chunks=${2}; shift;
+	    ;;
+	--clobber)
+	    clobber=${2}; shift;
 	    ;;
     esac
     shift
@@ -84,29 +88,53 @@ else
     settings="viscpu.yaml"
 fi
 
+run=0
 for (( ch=0; ch<$chunks; ch++ ))
 do
-    obsparams="config_files/obsparams/${model}/nt${nt}_spl${chunks}/fch${padded_freq}_chunk${ch}.yaml"
-    if [[ ! -f "$obsparams" ]]
+    obs="config_files/obsparams/${model}/nt${nt}_spl${chunks}/fch${padded_freq}_chunk${ch}.yaml"
+    if [[ ! -f "$obs" ]]
     then
-	echo "No file ${obsparams}!"
+	echo "No file ${obs}!"
 	exit
+    fi
+
+    if [ -f "outputs/${model}__fch${padded_freq}_nt${nt}_chunk${ch}.uvh5" ]
+    then
+	((run+=1))
     fi
 done
 
-runtime="0-00:30:00"
-if [ "${dry}" != "--dry-run" ] && [ ${gpu} != 1 ]
+if [ $run == $chunks ] && [ $clobber == 0 ]
 then
-    if [[ $nt -gt 200 ]]
-    then
-	runtime="0-02:00:00"
-    fi
+    echo "All chunks have already been run. Exiting"
+    exit
+fi
 
-    if [[ $nt -gt 7200 ]]
-    then
-	runtime="0-30:00:00"
+
+runtime="0-00:30:00"
+if [ "${dry}" != "--dry-run" ]
+then
+    if [ ${gpu} != 1 ]
+    then	       
+	if [[ $nt -gt 200 ]]
+	then
+	    runtime="0-02:00:00"
+	fi
+	
+	if [[ $nt -gt 7200 ]]
+	then
+	    runtime="0-30:00:00"
+	fi
+    else
+	if [ $nt -gt 2000 ]
+	then
+	    runtime="0-00:25:00"
+	fi
     fi
 fi
+
+
+
 echo "GOING TO RUN ON ${partition} PARTITION FOR ${runtime}"
 
 sbatch <<EOT
@@ -125,13 +153,32 @@ lscpu
 ${module}
 source ~/miniconda3/bin/activate
 conda activate h4c
-echo $(which python)
 
-for (( ch=0; ch<$chunks; ch++ ))
+echo "PYTHON ENV: $(which python)"
+echo "SETTINGS: ${settings}"
+echo "NCHUNKS: ${chunks}"
+echo "PROFILE: ${profile}"
+echo "LOGLEVEL: ${loglevel}"
+echo "DRY: ${dry}"
+echo "NTIMES: ${nt}"
+echo "FREQ: ${padded_freq}"
+echo "TRACE: ${trace}"
+
+for ((c=0 ; c<$chunks ; c++))
 do
-   echo "Running Time-Chunk ${ch}"
-   obsparams="config_files/obsparams/${model}/nt${nt}_spl${chunks}/fch${padded_freq}_chunk${ch}.yaml"	
-   ${trace} hera-sim-vis.py ${obsparams} ${settings} --compress outputs/compression-cache/nt${nt}_chunk${ch}.npy --normalize_beams --fix_autos ${profile} --log-level ${loglevel} ${dry}   
+   outfile="outputs/${model}__fch${padded_freq}_nt${nt}_chunk\$c.uvh5"
+
+   if [ -f \$outfile ] && [ ${clobber} == 0 ]
+   then
+	continue
+   fi
+
+   echo "Running Time-Chunk \$c"
+   obsparams="config_files/obsparams/${model}/nt${nt}_spl${chunks}/fch${padded_freq}_chunk\${c}.yaml"	
+   command="${trace} hera-sim-vis.py \$obsparams ${settings} --compress outputs/compression-cache/nt${nt}_chunk${chunks}.npy --normalize_beams --fix_autos ${profile} --log-level ${loglevel} ${dry}"
+   echo "OBSPARAMS: \${obsparams}"
+   echo "RUNNING: \$command"
+   \$command
 done
 
 EOT
