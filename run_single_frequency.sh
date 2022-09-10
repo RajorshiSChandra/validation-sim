@@ -158,7 +158,7 @@ sbatch <<EOT
 #SBATCH --mem=${mem}GB
 #SBATCH --partition=${partition}
 #SBATCH --cpus-per-task=${cpus_per_task}
-#SBATCH --times=${runtime}
+#SBATCH --time=${runtime}
 #SBATCH --nodes=1
 ${gpu_sbatch}
 
