@@ -17,7 +17,6 @@ def make_confusion_map(f, nside=128):
     """Make a confusion map at a given frequency. Output NSIDE=128."""
     # Load source confusion data
     ref_freq = 154e6
-    # TODO: fix path here
     data_file = f'{utils.SKYDIR}/gleam_like/gleam_like_fainter.npz'
     
     with np.load(data_file) as data:
@@ -132,14 +131,17 @@ def make_map(fch):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Create GSM + Diffuse maps.')
-    parser.add_argument('--out_nside', type=int, default=128,
+    parser.add_argument('--nside', type=int, default=128,
                         help='output NSIDE of the healpix maps.')
+    parser.add_argument('--ncores', type=int, default=None,
+                        help='number of processes.')
     args = parser.parse_args()
     
-    out_nside = args.out_nside
+    out_nside = args.nside
     out_npix = hp.nside2npix(out_nside)
     
     out_dir = utils.SKYDIR / f'diffuse_nside{out_nside}'
 
-    with Pool() as p:
+    
+    with Pool(args.ncores) as p:
         p.map(make_map, range(FREQ_ARRAY.size))

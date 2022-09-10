@@ -14,23 +14,25 @@ dry=""
 trace="time"
 chunks=1
 clobber=0
+mem=23
+cpus_per_task=1
 
 while [ $# -ne 0 ]
 do
     arg="$1"
     case "$arg" in
-        --profile)
-	    profile=1;
-            ;;
-        --gpu)
-            gpu=1;
-            ;;
+    --profile)
+        profile=1;
+        ;;
+    --gpu)
+        gpu=1;
+        ;;
 	--ntimes)
 	    nt=${2}; shift;
 	    ;;
 	--log)
-            loglevel=${2}; shift;
-            ;;
+        loglevel=${2}; shift;
+        ;;
 	--dry)
 	    dry="--dry-run";
 	    ;;
@@ -38,12 +40,18 @@ do
 	    loglevel="MEMTRACE";
 	    trace="PYTHONTRACEMALLOC=1 time";
 	    ;;
-        --chunks)
-	    chunks=${2}; shift;
-	    ;;
+    --chunks)
+        chunks=${2}; shift;
+        ;;
 	--clobber)
 	    clobber=${2}; shift;
 	    ;;
+    --mem)
+        mem=${2}; shift;
+        ;;
+    --cpus-per-task)
+        cpus_per_task=${2}; shift;
+        ;;
     esac
     shift
 done
@@ -56,9 +64,8 @@ if [[ ${profile} == 1 ]]
 then
     if [[ ${gpu} == 1 ]]
     then
-	trace="nvprof"
+        trace="nvprof"
     fi
-    
     profile="--profile profiling/${model}-fch${padded_freq}-gpu${gpu}-nt${nt}.profile.txt"
     echo "Running with profiling, with ntimes=${nt}"
 fi
@@ -71,10 +78,10 @@ then
     echo "Running on GPU"
     if [[ "$(hostname)" == *"bridges2"* ]]
     then
-	partition="GPU-shared"
-	module="module load cuda"
+        partition="GPU-shared"
+        module="module load cuda"
     else
-	partition=GPU
+        partition=GPU
     fi
     gpu_sbatch="#SBATCH --gpus=1"
     settings="visgpu.yaml"
@@ -83,7 +90,7 @@ else
     partition="Main"
     if [[ "$(hostname)" == *"agave"* ]]
     then
-	partition="serial"
+        partition="serial"
     fi
     settings="viscpu.yaml"
 fi
@@ -94,13 +101,13 @@ do
     obs="config_files/obsparams/${model}/nt${nt}_spl${chunks}/fch${padded_freq}_chunk${ch}.yaml"
     if [[ ! -f "$obs" ]]
     then
-	echo "No file ${obs}!"
-	exit
+        echo "No file ${obs}!"
+        exit
     fi
 
     if [ -f "outputs/${model}__fch${padded_freq}_nt${nt}_chunk${ch}.uvh5" ]
     then
-	((run+=1))
+        ((run+=1))
     fi
 done
 
@@ -116,20 +123,20 @@ if [ "${dry}" != "--dry-run" ]
 then
     if [ ${gpu} != 1 ]
     then	       
-	if [[ $nt -gt 200 ]]
-	then
-	    runtime="0-02:00:00"
-	fi
+        if [[ $nt -gt 200 ]]
+        then
+            runtime="0-02:00:00"
+        fi
 	
-	if [[ $nt -gt 7200 ]]
-	then
-	    runtime="0-30:00:00"
-	fi
+        if [[ $nt -gt 7200 ]]
+        then
+            runtime="0-30:00:00"
+        fi
     else
-	if [ $nt -gt 2000 ]
-	then
-	    runtime="0-00:25:00"
-	fi
+        if [ $nt -gt 2000 ]
+        then
+            runtime="0-00:25:00"
+        fi
     fi
 fi
 
@@ -137,15 +144,22 @@ fi
 
 echo "GOING TO RUN ON ${partition} PARTITION FOR ${runtime}"
 
+# Make sure that the slurm log directory exists. 
+# Otherwise, the job will terminate
+log_dir=logs/vis/${model}
+if [ ! -d ${log_dir} ]; then
+  mkdir -p ${log_dir}
+fi
+
 sbatch <<EOT
 #!/bin/bash
-#SBATCH -o logs/vis/${model}/%j.out
+#SBATCH -o ${log_dir}/%j.out
 #SBATCH --job-name=${model}${freq}
-#SBATCH --mem=23GB
+#SBATCH --mem=${mem}GB
 #SBATCH --partition=${partition}
-#SBATCH -c 1
-#SBATCH -t ${runtime}
-#SBATCH -N 1
+#SBATCH --cpus-per-task=${cpus_per_task}
+#SBATCH --times=${runtime}
+#SBATCH --nodes=1
 ${gpu_sbatch}
 
 lscpu
@@ -180,7 +194,4 @@ do
    echo "RUNNING: \$command"
    \$command
 done
-
 EOT
-
-

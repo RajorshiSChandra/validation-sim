@@ -4,7 +4,6 @@ model=${1}
 ncores=1
 shift
 
-
 nside=""
 
 while [ $# -ne 0 ]
@@ -12,7 +11,7 @@ do
     arg="$1"
     case "$arg" in
         --nside)
-            nside=${2};
+            nside=${1} ${2};
             shift
             ;;
 	--ncores)

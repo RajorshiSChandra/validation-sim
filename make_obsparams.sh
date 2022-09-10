@@ -10,7 +10,6 @@ fi
 
 echo "CREATING MODEL $model with $ntimes times"
 
-
 partition="Main"
 if [[ "$(hostname)" == *"agave"* ]]
 then
@@ -19,6 +18,8 @@ fi
 
 sbatch <<EOT
 #!/bin/bash
+#SBATCH -n 1
+#SBATCH -c 1
 #SBATCH -o logs/makeparams/%j.out
 #SBATCH -p ${partition}
 #SBATCH -t 00:30

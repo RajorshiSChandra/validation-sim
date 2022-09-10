@@ -1,10 +1,10 @@
+import argparse
+from pathlib import Path
 from copy import deepcopy
+
 import yaml
 import numpy as np
-from pathlib import Path
-import argparse
 
-import argparse
 
 parser = argparse.ArgumentParser(description='Create a set of obsparams for a given sky model.')
 
@@ -25,7 +25,7 @@ with open(REPODIR/'freqs.yaml', 'r') as fl:
 # UVData files that Aaron EW provided.
 FREQ_ARRAY = np.arange(
     freq_info['start'],
-    freq_info['end'],
+    freq_info['end'] + freq_info['delta'] / 2,
     freq_info['delta'],
 )
 
@@ -36,19 +36,22 @@ def quoted_presenter(dumper, data):
 
 yaml.add_representer(str, quoted_presenter)
 
+out_dir = REPODIR / 'outputs' / args.sky_model / f"nt{args.ntimes}"
+if not out_dir.exists():
+    out_dir.mkdir(parents=True)
 
 # Default config for templatingfrom jinja2 import Template
 cfg_default = {
     'filing': {
-        'outdir': f'{REPODIR}/outputs',
+        'outdir': out_dir.as_posix(),
         'outfile_name': "{sky_model}_{freq}_nt{ntimes}_chunk{chunk}",
         'output_format': 'uvh5',
         'clobber': True
     },
     'freq': {
         'Nfreqs': 1, 
-        'channel_width': 97656.25, 
-        'start_freq': 100000000.0
+        'channel_width': 1, 
+        'start_freq': 1.0
     },
     'sources': {
         'catalog': f'{REPODIR}/sky_models/{args.sky_model}/<FREQ>.skyh5'
@@ -80,6 +83,7 @@ for i, f in enumerate(FREQ_ARRAY):
         cfg_f['sources']['catalog'] = catalog
         cfg_f['freq']['Nfreqs'] = 1
         cfg_f['freq']['start_freq'] = float(f)
+        cfg_f['freq']['channel_width'] = freq_info['delta']
         cfg_f['time']['start_time'] = cfg_f['time']['start_time'] + cfg_f['time']['integration_time'] * j*(args.ntimes // args.split) / 86400
         
         obsparams_file = f'{obsp_dir}/fch{i:04d}_chunk{j}.yaml'

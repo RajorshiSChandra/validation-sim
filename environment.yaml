@@ -13,8 +13,14 @@ dependencies:
   - h5py
   - astropy
   - pyuvdata
+  - healpy
+  - astropy-healpix
+  - pympler
   - pip:
     - pyuvsim
-    - vis_cpu[gpu]
-    - git+https://github.com/hera-team/hera_sim@viscpu-api
+    - pyradiosky
+    - git+https://github.com/hera-team/vis_cpu@progress
+    - git+https://github.com/hera-team/hera_sim@memory-profiling
+    - git+https://github.com/telegraphic/pygdsm
     - line_profiler
+
