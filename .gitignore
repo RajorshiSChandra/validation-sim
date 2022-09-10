@@ -5,7 +5,10 @@ outputs/*
 sky_models/*.fits
 sky_models/gleam_like/*
 sky_models/ptsrc/*
+sky_models/diffuse*/
 **/.ipynb_checkpoints
 **/__pycache__
 profiling/*
 *.fits
+*.png
+*.pdf
