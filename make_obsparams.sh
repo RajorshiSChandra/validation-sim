@@ -1,12 +1,26 @@
 #!/bin/bash
 
 model=${1}
-ntimes=17280
+shift
 
-if [ ! -z "$2" ]
-  then
-    ntimes=${2}
-fi
+ntimes=17280
+split=1
+
+while [ $# -ne 0 ]
+do
+    arg="$1"
+    case "$arg" in
+    --ntimes)
+        ntimes=${2};
+        shift
+        ;;
+	--split)
+	    split=${2};
+	    shift
+	    ;;
+    esac
+    shift
+done
 
 echo "CREATING MODEL $model with $ntimes times"
 
@@ -31,7 +45,7 @@ source ~/miniconda3/bin/activate
 conda activate h4c
 echo $(which python)
 
-python make_obsparams_per_freq.py ${model} --ntimes ${ntimes}
+python make_obsparams_per_freq.py ${model} --ntimes ${ntimes} --split ${split}
 
 cd ..
 EOT
