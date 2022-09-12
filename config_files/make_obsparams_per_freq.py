@@ -76,7 +76,7 @@ if not obsp_dir.exists():
     
 for i, f in enumerate(FREQ_ARRAY):
     for j, t in enumerate(range(args.split)):
-        outfile_name = cfg_default['filing']['outfile_name'].format(sky_model=args.sky_model, freq=f'_fch{i:04d}', ntimes=args.ntimes, chunk=j)
+        outfile_name = cfg_default['filing']['outfile_name'].format(sky_model=args.sky_model, freq=f'fch{i:04d}', ntimes=args.ntimes, chunk=j)
         catalog = cfg_default['sources']['catalog'].replace('<FREQ>', f'fch{i:04d}')
         cfg_f = deepcopy(cfg_default)
         cfg_f['filing']['outfile_name'] = outfile_name

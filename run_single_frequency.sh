@@ -76,14 +76,15 @@ module=""
 if [ ${gpu} == 1 ]
 then
     echo "Running on GPU"
+    module="module load cuda"
     if [[ "$(hostname)" == *"bridges2"* ]]
     then
         partition="GPU-shared"
-        module="module load cuda"
+        gpu_sbatch="#SBATCH --gpus=1"
     else
         partition=GPU
+        gpu_sbatch="#SBATCH --gres=gpu:1"
     fi
-    gpu_sbatch="#SBATCH --gpus=1"
     settings="visgpu.yaml"
 else
     echo "Running on CPU"
@@ -105,7 +106,7 @@ do
         exit
     fi
 
-    if [ -f "outputs/${model}__fch${padded_freq}_nt${nt}_chunk${ch}.uvh5" ]
+    if [ -f "outputs/${model}_fch${padded_freq}_nt${nt}_chunk${ch}.uvh5" ]
     then
         ((run+=1))
     fi
@@ -192,6 +193,6 @@ do
    command="${trace} hera-sim-vis.py \$obsparams ${settings} --compress outputs/compression-cache/nt${nt}_chunk${chunks}.npy --normalize_beams --fix_autos ${profile} --log-level ${loglevel} ${dry}"
    echo "OBSPARAMS: \${obsparams}"
    echo "RUNNING: \$command"
-   \$command
+   eval \$command
 done
 EOT
