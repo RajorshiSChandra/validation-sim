@@ -12,12 +12,12 @@ dependencies:
   - libblas[build=*mkl]
   - h5py
   - astropy
-  - pyuvdata
   - healpy
   - astropy-healpix
   - pympler
   - pip:
-    - pyuvsim
+    - git+https://github.com/RadioAstronomySoftwareGroup/pyuvdata@partial-read-beamfits
+    - git+https://github.com/RadioAstronomySoftwareGroup/pyuvsim@partial-beam-read
     - pyradiosky
     - git+https://github.com/hera-team/vis_cpu@progress
     - git+https://github.com/hera-team/hera_sim@memory-profiling
