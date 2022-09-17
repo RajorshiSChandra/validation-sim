@@ -16,6 +16,7 @@ chunks=1
 clobber=0
 mem=23
 cpus_per_task=1
+runtime=""
 
 while [ $# -ne 0 ]
 do
@@ -51,6 +52,9 @@ do
         ;;
     --cpus-per-task)
         cpus_per_task=${2}; shift;
+        ;;
+    --runtime)
+       runtime=${2}; shift;
         ;;
     esac
     shift
@@ -119,24 +123,26 @@ then
 fi
 
 
-runtime="0-00:30:00"
-if [ "${dry}" != "--dry-run" ]
+if [ -z "${runtime}" ]
 then
-    if [ ${gpu} != 1 ]
-    then	       
-        if [[ $nt -gt 200 ]]
-        then
-            runtime="0-02:00:00"
-        fi
+    if [ "${dry}" != "--dry-run" ]
+    then
+        if [ ${gpu} != 1 ]
+        then	       
+            if [[ $nt -gt 200 ]]
+            then
+                runtime="0-02:00:00"
+            fi
 	
-        if [[ $nt -gt 7200 ]]
-        then
-            runtime="0-30:00:00"
-        fi
-    else
-        if [ $nt -gt 2000 ]
-        then
-            runtime="0-00:25:00"
+            if [[ $nt -gt 7200 ]]
+            then
+                runtime="0-30:00:00"
+            fi
+        else
+            if [ $nt -gt 2000 ]
+            then
+                runtime="0-00:25:00"
+            fi
         fi
     fi
 fi
