@@ -28,6 +28,13 @@ then
     partition="htc"
 fi
 
+if [[ "$(hostname)" == *"bridges"* ]]
+then
+    partition="GPU-shared"
+    gpu="#SBATCH --gpus=1"
+fi
+
+
 
 echo "CREATING MODEL: $model"
 
@@ -38,6 +45,7 @@ sbatch <<EOT
 #SBATCH -p ${partition}
 #SBATCH -t 00:30
 #SBATCH -N 1
+${gpu}
 
 cd sky_models
 

@@ -60,8 +60,6 @@ do
     shift
 done
 
-echo "Running vis-cpu for the ${model} model in channel $freq with time-split $chunks"
-
 printf -v padded_freq "%04d" $freq
 
 if [[ ${profile} == 1 ]]
@@ -79,7 +77,6 @@ gpu_sbatch=""
 module=""
 if [ ${gpu} == 1 ]
 then
-    echo "Running on GPU"
     module="module load cuda"
     if [[ "$(hostname)" == *"bridges2"* ]]
     then
@@ -90,15 +87,19 @@ then
         gpu_sbatch="#SBATCH --gres=gpu:1"
     fi
     settings="visgpu.yaml"
+    code="vis-gpu"
 else
-    echo "Running on CPU"
     partition="Main"
     if [[ "$(hostname)" == *"agave"* ]]
     then
         partition="serial"
     fi
     settings="viscpu.yaml"
+    code="vis-cpu"
 fi
+
+
+msg="Running $code: ${model} | chan=${padded_freq} | chunks=$chunks."
 
 run=0
 for (( ch=0; ch<$chunks; ch++ ))
@@ -110,7 +111,7 @@ do
         exit
     fi
 
-    if [ -f "outputs/${model}_fch${padded_freq}_nt${nt}_chunk${ch}.uvh5" ]
+    if [ -f "outputs/${model}/nt${nt}/${model}_fch${padded_freq}_nt${nt}_chunk${ch}.uvh5" ]
     then
         ((run+=1))
     fi
@@ -118,9 +119,11 @@ done
 
 if [ $run == $chunks ] && [ $clobber == 0 ]
 then
-    echo "All chunks have already been run. Exiting"
+    echo "$msg All chunks already run. Exiting"
     exit
 fi
+
+echo $msg
 
 
 if [ -z "${runtime}" ]
@@ -158,6 +161,8 @@ if [ ! -d ${log_dir} ]; then
   mkdir -p ${log_dir}
 fi
 
+email=$(git config user.email)
+
 sbatch <<EOT
 #!/bin/bash
 #SBATCH -o ${log_dir}/%j.out
@@ -167,6 +172,9 @@ sbatch <<EOT
 #SBATCH --cpus-per-task=${cpus_per_task}
 #SBATCH --time=${runtime}
 #SBATCH --nodes=1
+#SBATCH --mail-type=FAIL
+#SBATCH --mail-user=${email}
+
 ${gpu_sbatch}
 
 lscpu
@@ -187,7 +195,7 @@ echo "TRACE: ${trace}"
 
 for ((c=0 ; c<$chunks ; c++))
 do
-   outfile="outputs/${model}__fch${padded_freq}_nt${nt}_chunk\$c.uvh5"
+   outfile="outputs/${model}/nt${nt}/${model}_fch${padded_freq}_nt${nt}_chunk\$c.uvh5"
 
    if [ -f \$outfile ] && [ ${clobber} == 0 ]
    then
