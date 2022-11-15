@@ -110,7 +110,7 @@ do
         exit
     fi
 
-    if [ -f "outputs/${model}_fch${padded_freq}_nt${nt}_chunk${ch}.uvh5" ]
+    if [ -f "outputs/${model}/nt${nt}/${model}_fch${padded_freq}_nt${nt}_chunk${ch}.uvh5" ]
     then
         ((run+=1))
     fi
@@ -187,7 +187,7 @@ echo "TRACE: ${trace}"
 
 for ((c=0 ; c<$chunks ; c++))
 do
-   outfile="outputs/${model}__fch${padded_freq}_nt${nt}_chunk\$c.uvh5"
+   outfile="outputs/${model}/nt${nt}/${model}_fch${padded_freq}_nt${nt}_chunk\$c.uvh5"
 
    if [ -f \$outfile ] && [ ${clobber} == 0 ]
    then
