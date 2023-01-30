@@ -77,7 +77,7 @@ gpu_sbatch=""
 module=""
 if [ ${gpu} == 1 ]
 then
-    module="module load cuda"
+    module="module load cuda/10.2.0"
     if [[ "$(hostname)" == *"bridges2"* ]]
     then
         partition="GPU-shared"
@@ -146,6 +146,10 @@ then
             then
                 runtime="0-00:25:00"
             fi
+	    if [ "$model" == *"diffuse"* ]
+	    then
+		runtime="0-01:00:00"
+	    fi
         fi
     fi
 fi

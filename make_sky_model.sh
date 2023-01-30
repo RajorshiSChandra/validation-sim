@@ -11,7 +11,7 @@ do
     arg="$1"
     case "$arg" in
         --nside)
-            nside=${1} ${2};
+            nside="--nside ${2}";
             shift
             ;;
 	--ncores)
@@ -30,8 +30,7 @@ fi
 
 if [[ "$(hostname)" == *"bridges"* ]]
 then
-    partition="GPU-shared"
-    gpu="#SBATCH --gpus=1"
+    partition="RM"
 fi
 
 
@@ -43,9 +42,8 @@ sbatch <<EOT
 #SBATCH -o logs/skymodel/%j.out
 #SBATCH -c ${ncores}
 #SBATCH -p ${partition}
-#SBATCH -t 00:30
+#SBATCH -t 00:30:00
 #SBATCH -N 1
-${gpu}
 
 cd sky_models
 
