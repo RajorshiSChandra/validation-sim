@@ -208,6 +208,7 @@ def concat_models(i):
     # ptsrc.concat(ateam_f, inplace=True)
 
     utils.write(ptsrc, 'ptsrc', i)
-    
-with Pool() as p:
-    p.map(concat_models, range(FREQ_ARRAY.size))
+
+if __name__ == "__main__":
+    with Pool() as p:
+        p.map(concat_models, range(FREQ_ARRAY.size))
