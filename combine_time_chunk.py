@@ -4,6 +4,7 @@ from multiprocessing import Pool
 
 import numpy as np
 from pyuvdata import UVData
+from hera_cal import io
 
 VIS_DIR = Path(__file__).parent.absolute() / 'outputs'
 
@@ -15,9 +16,26 @@ def concat_blt(i):
     
     print(f'Combining\n{files_to_load}\nWriting to {outfile}\n')
     
-    uvd = UVData()
-    uvd.read(files_to_load, axis='blt')
-    uvd.write_uvh5(outfile)
+    print("Reading meta...")
+    uvd = io.HERADataFastReader(files_to_load)
+    print("Reading data")
+    data = uvd.read(read_data=True, read_flags=False, read_nsamples=False)
+    print("writing...")
+    io.write_vis(
+        outfile,
+        data=data,
+        lst_array=uvd.lsts,
+        freq_array=uvd.freqs,
+        antpos=uvd.antpos,
+        time_array=uvd.times,
+        filetype='uvh5',
+        write_file=True,
+        overwrite=True,
+        verbose=True,
+        history="Chunked by the chunker",
+        object_name=args.sky_model,
+        vis_units='Jy',
+    )
 
 
 if __name__ == "__main__":
@@ -25,7 +43,6 @@ if __name__ == "__main__":
         description='Combine time-chunked visibility into single file'
     )
     parser.add_argument('sky_model', type=str)
-    parser.add_argument('--chunk_size', type=int, default=3)
     parser.add_argument('--ncores', type=int, default=1,
                         help='number of processes.')
     parser.add_argument('--channels', type=int, nargs='+', default=None,
@@ -53,17 +70,22 @@ if __name__ == "__main__":
             data_path.glob(f'{args.sky_model}_fch????_nt17280_chunk?.uvh5')
         )
 
-    # Convert data_files into a nested list per frequency
-    nfiles = len(data_files)
-    if (nfiles % args.chunk_size) == 0:
-        data_files_per_freq = [data_files[i:i+args.chunk_size] 
-                               for i in range(0, nfiles, args.chunk_size)]
-    else:
-        raise ValueError(
-            "Number of files do not work with given chunk siz."
-        )
+    channels = sorted({int(fl.name.split("_fch")[1].split("_")[0]) for fl in data_files})
 
-    nfreqs = len(data_files_per_freq)
+    # Get the number of time chunks
+    for i, fl in enumerate(data_files):
+        if f'fch{channels[0]:04}' not in fl.name:
+            break
+    n_time_chunks = i + 1
+
+
+    data_files_per_freq = {}
+    for channel in channels:
+        data_files_per_freq[channel] = []
+        for tch in range(n_time_chunks):
+            this = data_path / f'{args.sky_model}_fch{channel:04}_nt17280_chunk{tch}.uvh5'
+            assert this.exists()
+            data_files_per_freq[channel].append(this)
     
     with Pool(args.ncores) as p:
-        p.map(concat_blt, range(nfreqs))
+        p.map(concat_blt, channels)
