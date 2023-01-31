@@ -6,6 +6,7 @@ sky_models/*.fits
 sky_models/gleam_like/*
 sky_models/ptsrc/*
 sky_models/diffuse*/
+sky_models/eor/
 **/.ipynb_checkpoints
 **/__pycache__
 profiling/*

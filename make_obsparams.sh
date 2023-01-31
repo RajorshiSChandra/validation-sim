@@ -30,6 +30,11 @@ then
     partition="htc"
 fi
 
+if [[ "$(hostname)" == *"bridges"* ]]
+then
+    partition="RM-shared"
+fi
+
 sbatch <<EOT
 #!/bin/bash
 #SBATCH -n 1

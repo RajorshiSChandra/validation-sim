@@ -2,28 +2,26 @@ from multiprocessing import Pool
 
 import numpy as np
 import matplotlib.pyplot as plt
+from pathlib import Path
 
 import h5py
 import healpy as hp
 from astropy import units as u
 from pyradiosky import SkyModel
 
+here = Path(__file__).parent
+model_dir = here / 'eor'
+f = h5py.File(f'{model_dir}/healpix_maps.h5', 'r')
 
-NFREQS = 1024
-NSIDE = 128
+NSIDE = int(f['nside'][()])
 NPIX = hp.nside2npix(NSIDE)
 
-model_dir = '/ilifu/astro/projects/hera/Validation/h1c_idr3_sim/sky_models/eor1a'
-
-f = h5py.File(
-    f'{model_dir}/H1C_IDR3_validation_eor1a_seed_2983_nside_128.hdf5', 'r'
-)
-
-# Frequency -- unit Hz
-freqs = f['nu'][:]
+freqs = f['frequencies_mhz'][:] * 1e6  # units Hz
+NFREQS = len(freqs)
+seed = int(f['realization_random_seed'][()])
 
 # HEALPix array -- dimension (nfreqs, npix) -- unit Jy/sr
-hmaps = f['hmap'][:, :]
+hmaps = f['healpix_maps_Jy_per_sr'][:, :]
 
 # Shift the maps values so there is no negative avalues
 hmaps_min = hmaps.min(axis=1)[:, np.newaxis]
@@ -48,7 +46,7 @@ def make_eor_model(i):
     
     eor_model = SkyModel(**params)
     eor_model.write_skyh5(
-        f'{model_dir}/eor1a_seed2983_nside128_fch{i:04d}.skyh5', 
+        f'{model_dir}/fch{i:04d}.skyh5', 
         clobber=True
     )
     
