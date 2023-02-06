@@ -24,35 +24,107 @@ import os
 import time
 import logging 
 from hera_cal import io
+from collections import Counter
 
+import h5py
 import numpy as np
-import pyuvdata.utils as uvutils
-from pyuvdata import UVData
-from pyuvsim.simsetup import _parse_layout_csv
+from pyuvdata import FastUVH5Meta
 from pathlib import Path
 from hera_cal._cli_utils import parse_args, run_with_profiling
 
+logger = logging.getLogger('rechunk')
 
 def find_all_files(base_dir: Path, channels: list[int], prototype: str, ignore_missing_channels: bool = False):
     all_files = {}
     for ch in channels:
         all_files[ch] = {}
         p = prototype.format(channel=ch)
-        files = list(base_dir.glob(p))
-        if not files and not ignore_missing_channels:
-            raise FileNotFoundError(f"No files with prototype {p} for channel {ch}")
+        files = sorted(base_dir.glob(p))
+        if not files:
+            msg=f"No files with prototype {p} for channel {ch}"
+            if not ignore_missing_channels:
+                raise FileNotFoundError(msg)
+            else:
+                logger.warning(msg)
+        else:
+            all_files[ch] = files
+
+    if not all_files:
+        raise FileNotFoundError(f"No files found with prototype {prototype} in {base_dir}")
+
+    nchunks_counter = Counter([len(flist) for flist in all_files.values()])
+    if len(nchunks_counter) > 1:
+        most_common_nchunks = nchunks_counter.most_common(1)[0][0]
+        for fllist in all_files.values():
+            if len(fllist) != most_common_nchunks:
+                logger.warning(
+                    "Number of files for different channels is not the same. "
+                    f"Got {len(fllist)} for channel {ch} and {len(all_files[channels[0]])} for channel {channels[0]}"
+                )
+
+    for nc, count in nchunks_counter.items():
+        logger.info(f"Found {count} channels with {nc} chunks")
+
+    # Turn them all into metadata objects.
+    for ch in channels:
+        all_files[ch] = [FastUVH5Meta(fl) for fl in all_files[ch]]
+
+    return all_files
+
+def get_file_time_slices(meta_list: list[FastUVH5Meta], lsts_per_chunk: int,  lst_wrap: float):    
+    dlst = -1
+    i = 0
+    while dlst < 0:
+        dlst = meta_list[0].lsts[i+1] - meta_list[0].lsts[i]
+        i += 1
+
+    for fl_index, meta in enumerate(meta_list):
+        if meta.lsts[0] > (lst_wrap + dlst):
+            continue
+        elif meta.lsts[-1] < lst_wrap:
+            continue
+        else:
+            time_index = np.argwhere(meta.lsts > lst_wrap).flatten()[0]
+            break
+
+    starting_file = fl_index
+    starting_time = time_index
+
+    Ntimes = meta_list[0].Ntimes
+    chunks = []
+    while True:
+        chunk = []
+        ntimes_in_this_chunk = 0
+        while True:
+            chunk.append((
+                fl_index,
+                meta_list[fl_index],   # The meta object itself
+                slice(time_index, min(Ntimes, time_index + lsts_per_chunk)) 
+            ))
+
+            if time_index + lsts_per_chunk >= Ntimes:
+                ntimes_in_this_chunk += Ntimes - time_index
+                time_index = time_index + lsts_per_chunk - Ntimes
+                fl_index += 1
+                if fl_index >= len(meta_list):
+                    fl_index = 0
+            else:
+                ntimes_in_this_chunk += lsts_per_chunk
+
+            if ntimes_in_this_chunk >= lsts_per_chunk:
+                break
         
-def chunk_files(args):
+        if fl_index == starting_file and 0 < time_index - starting_time < lsts_per_chunk:
+            break
+
+    return chunks
+
+
+def chunk_files(args, channels, save_dir: Path, base_dir: Path):
     # Load the read files, and check that the read prototype is valid if provided.
+    raw_files = find_all_files(base_dir, channels, args.r_prototype, args.ignore_missing_channels)    
     
-    raw_files = sorted(list(base_dir.glob(args.r_prototype)))
-    if len(raw_files) == 0:
-    raise FileNotFoundError(
-        f"No files with the given prototype '{args.r_prototype}' were "
-        f"found in the provided base directory '{args.base_dir}'."
-    )
-    
-    logging.info(f"Number of raw data files: {len(raw_files)}")
+    logger.info(f"Number of raw data files: {len(raw_files)}")
 
     # Build the save file prototype.
     if args.sky_cmp:
@@ -60,140 +132,113 @@ def chunk_files(args):
     else:
         prototype = "zen.LST.{lst:.7f}.uvh5"
     
+
+    # Ensure all the files have rectangular blts with the same ordering.
+    # This is a requirement for the chunking to work.
+    time_first = raw_files[channels[0]][0]._time_first
+    for ch in channels:
+        for meta in raw_files[ch]:
+            if not meta.blts_are_rectangular:
+                raise ValueError("Not all files have rectangular blts.")
+            if meta._time_first != time_first:
+                raise ValueError("Not all files have the same blt ordering.")
+
     # Read the metadata from a file to get the times.
     logging.info("Reading reference metadata...")
-    t1 = time.time()
-    uvd = UVData()
-    uvd.read(raw_files[0], read_data=False)
-    time_array, inds, inv_inds = np.unique(
-        uvd.time_array, return_index=True, return_inverse=True
-    )
-    lsts = uvd.lst_array[inds]
-    Ntimes = uvd.Ntimes
-    dt = time.time() - t1
-    logging.info(f"Finished in {dt} seconds.")
+    
+    # Get all the frequencies we're gonna use.
+    freqs = []
+    for ch in channels:
+        meta = raw_files[ch][0]
+        freqs.append(meta.freqs)
+    freqs = np.concatenate(freqs)
 
-    # Check that the array layout file, if provided, exists.
-    if args.array_layout:
-        if not os.path.exists(args.array_layout):
-            raise FileNotFoundError(
-                f"The provided path to the array layout, {args.array_layout}, "
-                "does not exist."
-            )
+    # Get the times we're gonna use.
+    times = []
+    lsts = []
+    for meta in raw_files[channels[0]]:
+        times.append(meta.times)
+        lsts.append(meta.lsts)
+    times = np.concatenate(times)
+    lsts = np.concatenate(lsts)
 
-        logging.info(f"Loading array data...")
-        t1 = time.time()
-        # This gives an array of 6-tuples: (name, num, beam_id, e, n, u)
-        array_info = _parse_layout_csv(args.array_layout)
+    # Roll the times and lsts around so it's easier to chunk them.
+    time_index = np.argwhere(lsts >= args.lst_wrap)[0][0]
+    times = np.roll(times, -time_index)
+    lsts = np.roll(lsts, -time_index)
+
+
+    n_chunks = int(np.ceil(len(lsts) / args.n_times_per_file))
+
+    # Make a prototype UVData object for the chunked data.
+    uvd = meta.to_uvd()  # this has too many times, and only one frequency. We update that manually.
+    uvd.use_future_array_shapes()
+    uvd.freq_array = freqs
+    uvd.Nfreqs = len(freqs)
+    uvd.channel_width = np.diff(freqs)[0]
+    uvd.Nblts = uvd.Nbls * args.n_times_per_file
+    uvd.Ntimes = args.n_times_per_file
+    
+    if time_first:
+        uvd.time_array = np.tile(times[:args.n_times_per_file], uvd.Nbls)
+        uvd.lst_array = np.tile(lsts[:args.n_times_per_file], uvd.Nbls)
+        uvd.uvw_array = np.repeat(meta.uvw_array[::meta.Ntimes], uvd.Ntimes)
+        uvd.ant_1_array = np.repeat(meta.unique_ant_1_array, args.n_times_per_file)
+        uvd.ant_2_array = np.repeat(meta.unique_ant_2_array, args.n_times_per_file)
+    else:
+        uvd.time_array = np.repeat(times[:args.n_times_per_file], uvd.Nbls)
+        uvd.lst_array = np.repeat(lsts[:args.n_times_per_file], uvd.Nbls)
+        uvd.uvw_array = np.tile(meta.uvw_array[::meta.Ntimes], uvd.Ntimes)
+        uvd.ant_1_array = np.tile(meta.unique_ant_1_array, args.n_times_per_file)
+        uvd.ant_2_array = np.tile(meta.unique_ant_2_array, args.n_times_per_file)
+
+    uvd.check()  # quick check to make sure we set everything up correctly.
+
+    # Get the slices we'll need for each chunk.
+    chunk_slices = get_file_time_slices(raw_files[channels[0]], args.n_times_per_file, args.lst_wrap)
+
+#    metas0 = raw_files[channels[0]]
+
+    
+    for outfile_index, chunk_slices in enumerate(chunk_slices):
         
-        # Update the values of the antenna information parameters for later.
-        antenna_names = np.array(
-            [item[0] for item in array_info], dtype=str
-        )
-        antenna_numbers = np.array(
-            [item[1] for item in array_info], dtype=uvd._antenna_numbers.value.dtype
-        )
-        antenna_diameters = np.array(
-            [uvd._antenna_diameters.value[0],] * len(array_info),
-            dtype=uvd._antenna_diameters.value.dtype
-        )
-        antenna_positions = np.array(
-            [list(item)[3:] for item in array_info], dtype=uvd._antenna_positions.value.dtype
-        )
-        # Change antenna positions from ENU to ECEF.
-        antenna_positions = uvutils.ECEF_from_ENU(
-            antenna_positions, *uvd.telescope_location_lat_lon_alt
-        ) - uvd.telescope_location
-        Nants_telescope = len(array_info)
-        dt = time.time() - t1
-        logging.info(f"Finsihed in {dt} seconds.")
+        # Update the metadata for this chunk.
+        time_slice = slice(outfile_index*args.n_times_per_file, (outfile_index+1)*args.n_times_per_file)
+        if time_first:
+            uvd.time_array = np.tile(times[time_slice], uvd.Nbls)
+            uvd.lst_array = np.tile(lsts[time_slice], uvd.Nbls)
+        else:
+            uvd.time_array = np.repeat(times[time_slice], uvd.Nbls)
+            uvd.lst_array = np.repeat(lsts[time_slice], uvd.Nbls)
+        
+        fname = prototype.format(lst=uvd.lst_array[0])
+        pth = save_dir / fname
+        
+        # This just writes the header.    
+        uvd.write_uvh5(str(pth), clobber=True)
 
-    # Here's the idea: the labels will give the LSTs on [lst_wrap,lst_wrap+2pi), and
-    # when the daily data is made, we'll put the LSTs into this space and do the
-    # interpolation that way. It should work fine, since the wrapping point is chosen
-    # so that it's the first LST of the first day and just after the last LST of the
-    # last day.
-    # The wrap index selection is a little sketchy in general, but will work fine for
-    # H1C IDR3 validation.
-    wrap_ind = np.argwhere(lsts > args.lst_wrap).flatten()[0]
-    # wrap_ind = np.argmin(np.abs(lsts - args.lst_wrap))
-    new_lsts = np.roll(lsts, -wrap_ind)
-    new_lsts[new_lsts < new_lsts[0]] += 2 * np.pi
-    one_day = np.mean(np.diff(time_array)) * Ntimes
-    new_times = np.roll(time_array, -wrap_ind)
-    lst_wrap = new_lsts[0]
+        full_dset = np.empty((uvd.Nblts, uvd.Nfreqs, uvd.Npols), dtype=np.complex64)
 
-    # Read in the big chunk all at once to save on IO costs.
-    start = args.n_stride * args.n_times_to_load
-    end = (1 + args.n_stride) * args.n_times_to_load
-    start_lsts = new_lsts[start:end:args.chunk_size]
-    times_to_load = new_times[start:end]
-    lsts_to_load = new_lsts[start:end] % (2 * np.pi)
-    iswrapped = lsts_to_load[0] > lsts_to_load[-1]
-    del uvd
-    logging.info(f"Number of time chunks to produce: {len(start_lsts)}")
-    logging.info(f"List of starting LSTs: {start_lsts}")
-
-    # Actually read in the files. Need to do it this way to deal with metadata issues.
-    logging.info("Reading raw simulation files...")
-    t1 = time.time()
-    new_uvd = UVData()
-    new_uvd.read(raw_files, times=times_to_load, axis="freq")
-    new_uvd.x_orientation = "east"
-    dt = (time.time() - t1) / 3600
-    logging.info(f"Took {dt:.4f} hours to read all files.")
-
-    if iswrapped:
-        # Need to re-sort since select sorts by increasing time.
-        blt_inds = np.concatenate(
-            [np.argwhere(new_uvd.time_array == t).flatten() for t in times_to_load]
-        )
-        new_uvd.reorder_blts(blt_inds)
-
-    # Modify the LST/time array if necessary.
-    to_adjust = new_uvd.lst_array < lst_wrap
-    if np.any(to_adjust):
-        new_uvd.time_array[to_adjust] += one_day
-        times_to_load[lsts_to_load < lst_wrap] += one_day
-
-    # If an array layout is provided, then we need to update the metadata.
-    if args.array_layout:
-        logging.info("Updating array information...")
-        # Update the array layout information.
-        new_uvd.antenna_numbers = antenna_numbers
-        new_uvd.antenna_names = antenna_names
-        new_uvd.antenna_positions = antenna_positions
-        new_uvd.antenna_diameters = antenna_diameters
-        new_uvd.Nants_telescope = Nants_telescope
-        if args.compress:
-            new_uvd.compress_by_redundancy()
-        elif args.inflate:
-            new_uvd.inflate_by_redundancy()
-
-    if args.compress and not args.array_layout:
-        new_uvd.compress_by_redundancy()
-
-    logging.info("Writing files to disk...")
-    t1 = time.time()
-    if len(start_lsts) > 1:
-        for chunk, start_lst in enumerate(start_lsts):
-            # Figure out which times to select.
-            start = chunk * args.chunk_size
-            end = start + args.chunk_size
-            times_here = times_to_load[start:end]
-            uvd_here = new_uvd.select(times=times_here, inplace=False)
-
-            # We should be done, so write the contents to disk.
-            new_filename = save_dir / prototype.format(lst=start_lst)
-            uvd_here.write_uvh5(new_filename, clobber=args.clobber)
-            del uvd_here
-    else:  # We don't want to make a copy of the data if we're only doing one chunk.
-        new_filename = save_dir / prototype.format(lst=start_lsts[0])
-        new_uvd.write_uvh5(new_filename, clobber=args.clobber)
-    dt = time.time() - t1
-    logging.info(f"Finished after {dt} seconds.")
-    runtime = (time.time() - init_time) / 3600
-    logging.info(f"Entire script took {runtime:.4f} hours to complete.")
+        # Now we need to actually write the data.
+        for ich, ch in enumerate(channels):
+            nblts_so_far = 0
+            for (flidx, meta0, slc) in chunk_slices:
+                # Get the data for this chunk.
+                meta = raw_files[ch][flidx]
+                with h5py.File(str(meta.path), 'r') as fl:
+                    if time_first:
+                        slices = [slice(slc.start + n, slc.stop + n) for n in range(uvd.Nbls)]        
+                    else:
+                        slices = slice(uvd.Nbls * slc.start, uvd.Nbls * slc.stop)
+                data = fl['Data/visdata'][slices]
+                
+                full_dset[nblts_so_far:(data.shape[0] + nblts_so_far), ich] = data[:, 0]
+                nblts_so_far += data.shape[0]
+        
+        # Now write the data.
+        with h5py.File(pth, 'w') as fl:
+            d = fl.create_group('Data')
+            d['visdata'] = full_dset
 
     
 if __name__ == "__main__":
@@ -214,7 +259,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "-s", "--sky-cmp", type=str, default=None, help="Sky component (e.g. diffuse)."
     )
-    
+
     parser.add_argument(
         "--chunk-size", type=int, default=180, help="Number of integrations per chunk."
     )
@@ -229,7 +274,7 @@ if __name__ == "__main__":
     )
 
     args = parse_args(parser)
-    
+
     # Check that the read/write directories actually exist with proper permissions.
     base_dir = Path(args.base_dir)
     if not base_dir.exists():
@@ -250,8 +295,9 @@ if __name__ == "__main__":
             "directory. Please update the directory choice or permissions."
         )
 
-    channels = sum(list(range(*tuple(map(int, ch.split("~"))))) for ch in args.channels, start=[])
-    
-    run_with_profiling(chunk_files, args, channels)
+    channels = sum(
+        (list(range(*tuple(map(int, ch.split("~"))))) for ch in args.channels),
+        start=[],
+    )
 
-    
+    run_with_profiling(chunk_files, args, channels=channels, save_dir=save_dir, base_dir=base_dir)
