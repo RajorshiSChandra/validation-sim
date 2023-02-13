@@ -28,13 +28,21 @@ from collections import Counter
 
 import h5py
 import numpy as np
-from pyuvdata import FastUVH5Meta
+from pyuvdata.uvdata.uvh5 import FastUVH5Meta
+from pyuvdata import utils as uvutils
 from pathlib import Path
-from hera_cal._cli_utils import parse_args, run_with_profiling
+from hera_cal._cli_tools import parse_args, run_with_profiling
 
 logger = logging.getLogger('rechunk')
 
-def find_all_files(base_dir: Path, channels: list[int], prototype: str, ignore_missing_channels: bool = False):
+def find_all_files(
+        base_dir: Path,
+        channels: list[int],
+        prototype: str,
+        ignore_missing_channels: bool = False,
+        assume_blt_layout: bool = False,
+        blt_order='determine',
+):
     all_files = {}
     for ch in channels:
         all_files[ch] = {}
@@ -66,8 +74,33 @@ def find_all_files(base_dir: Path, channels: list[int], prototype: str, ignore_m
         logger.info(f"Found {count} channels with {nc} chunks")
 
     # Turn them all into metadata objects.
+    fl0 = FastUVH5Meta(all_files[channels[0]][0], blt_order=blt_order)
+    logger.info(f"blt_order orig: {blt_order}")
+    blt_order = tuple(fl0.blt_order)
+    logger.info(f"blt_order after: {blt_order}")
+    
+    if blt_order in (("ant1", "time"), ("time", "ant1")):
+        # There's a possibility that it's actually time-bl or bl-time
+        blt_order = uvutils.determine_blt_order(
+            time_array=fl0.time_array,
+            ant_1_array=fl0.ant_1_array,
+            ant_2_array=fl0.ant_2_array,
+            baseline_array=fl0.baseline_array,
+            Nbls=fl0.Nbls,
+            Ntimes=fl0.Ntimes,
+        )
+
+    if blt_order not in (("baseline","time"), ("time", "baseline")):
+        raise ValueError("Your first file is not in baseline/time or time/baseline order. This script only works for those orderings...")
+        
+    logger.info(f"First file has blt_order: {blt_order}")
+
+
+    if assume_blt_layout:
+        logger.info(f"Assuming blt_order={blt_order} for all files")
+        
     for ch in channels:
-        all_files[ch] = [FastUVH5Meta(fl) for fl in all_files[ch]]
+        all_files[ch] = [FastUVH5Meta(fl, blt_order=blt_order if assume_blt_layout else 'determine') for fl in all_files[ch]]
 
     return all_files
 
@@ -120,28 +153,23 @@ def get_file_time_slices(meta_list: list[FastUVH5Meta], lsts_per_chunk: int,  ls
     return chunks
 
 
-def chunk_files(args, channels, save_dir: Path, base_dir: Path):
+def chunk_files(channels, r_prototype: str, save_dir: Path, base_dir: Path, prototype: str, lst_wrap: float = np.pi, n_times_per_file: int = 180, ignore_missing_channels: bool=False, assume_blt_layout: bool = False, blt_order ='determine'):
     # Load the read files, and check that the read prototype is valid if provided.
-    raw_files = find_all_files(base_dir, channels, args.r_prototype, args.ignore_missing_channels)    
+    raw_files = find_all_files(base_dir, channels, r_prototype, ignore_missing_channels, assume_blt_layout, blt_order=blt_order)    
     
     logger.info(f"Number of raw data files: {len(raw_files)}")
 
-    # Build the save file prototype.
-    if args.sky_cmp:
-        prototype = "zen.LST.{lst:.7f}." + f"{args.sky_cmp}.uvh5"
-    else:
-        prototype = "zen.LST.{lst:.7f}.uvh5"
-    
 
     # Ensure all the files have rectangular blts with the same ordering.
     # This is a requirement for the chunking to work.
     time_first = raw_files[channels[0]][0]._time_first
-    for ch in channels:
-        for meta in raw_files[ch]:
-            if not meta.blts_are_rectangular:
-                raise ValueError("Not all files have rectangular blts.")
-            if meta._time_first != time_first:
-                raise ValueError("Not all files have the same blt ordering.")
+    if not assume_blt_layout:
+        for ch in channels:
+            for meta in raw_files[ch]:
+                if not meta.blts_are_rectangular:
+                    raise ValueError("Not all files have rectangular blts.")
+                if meta._time_first != time_first:
+                    raise ValueError("Not all files have the same blt ordering.")
 
     # Read the metadata from a file to get the times.
     logging.info("Reading reference metadata...")
@@ -163,47 +191,61 @@ def chunk_files(args, channels, save_dir: Path, base_dir: Path):
     lsts = np.concatenate(lsts)
 
     # Roll the times and lsts around so it's easier to chunk them.
-    time_index = np.argwhere(lsts >= args.lst_wrap)[0][0]
+    time_index = np.argwhere(lsts >= lst_wrap)[0][0]
     times = np.roll(times, -time_index)
     lsts = np.roll(lsts, -time_index)
 
 
-    n_chunks = int(np.ceil(len(lsts) / args.n_times_per_file))
+    n_chunks = int(np.ceil(len(lsts) / n_times_per_file))
 
     # Make a prototype UVData object for the chunked data.
-    uvd = meta.to_uvd()  # this has too many times, and only one frequency. We update that manually.
+    uvd = meta.to_uvdata()  # this has too many times, and only one frequency. We update that manually.
     uvd.use_future_array_shapes()
     uvd.freq_array = freqs
     uvd.Nfreqs = len(freqs)
-    uvd.channel_width = np.diff(freqs)[0]
-    uvd.Nblts = uvd.Nbls * args.n_times_per_file
-    uvd.Ntimes = args.n_times_per_file
+    uvd.channel_width = np.ones_like(freqs)*(np.diff(freqs)[0])
+    uvd.Nblts = uvd.Nbls * n_times_per_file
+    uvd.Ntimes = n_times_per_file
+    uvd.integration_time = meta.integration_time.flatten()[0] * np.ones(uvd.Nblts)
+    uvd.phase_center_app_dec = uvd.phase_center_app_dec[0] * np.ones(uvd.Nblts)
+    uvd.phase_center_id_array = np.zeros(uvd.Nblts, dtype=int)
     
     if time_first:
-        uvd.time_array = np.tile(times[:args.n_times_per_file], uvd.Nbls)
-        uvd.lst_array = np.tile(lsts[:args.n_times_per_file], uvd.Nbls)
-        uvd.uvw_array = np.repeat(meta.uvw_array[::meta.Ntimes], uvd.Ntimes)
-        uvd.ant_1_array = np.repeat(meta.unique_ant_1_array, args.n_times_per_file)
-        uvd.ant_2_array = np.repeat(meta.unique_ant_2_array, args.n_times_per_file)
+        uvd.time_array = np.tile(times[:n_times_per_file], uvd.Nbls)
+        uvd.phase_center_app_ra = np.tile(uvd.phase_center_app_ra[:n_times_per_file], uvd.Nbls)
+        uvd.phase_center_frame_pa = np.tile(uvd.phase_center_frame_pa[:n_times_per_file], uvd.Nbls)
+        uvd.lst_array = np.tile(lsts[:n_times_per_file], uvd.Nbls)
+        uvd.uvw_array = np.repeat(meta.uvw_array[::meta.Ntimes], uvd.Ntimes, axis=0)
+        uvd.ant_1_array = np.repeat(meta.unique_ant_1_array, n_times_per_file)
+        uvd.ant_2_array = np.repeat(meta.unique_ant_2_array, n_times_per_file)
+        uvd.baseline_array = np.repeat(meta.unique_baseline_array, n_times_per_file)
     else:
-        uvd.time_array = np.repeat(times[:args.n_times_per_file], uvd.Nbls)
-        uvd.lst_array = np.repeat(lsts[:args.n_times_per_file], uvd.Nbls)
-        uvd.uvw_array = np.tile(meta.uvw_array[::meta.Ntimes], uvd.Ntimes)
-        uvd.ant_1_array = np.tile(meta.unique_ant_1_array, args.n_times_per_file)
-        uvd.ant_2_array = np.tile(meta.unique_ant_2_array, args.n_times_per_file)
+        uvd.time_array = np.repeat(times[:n_times_per_file], uvd.Nbls)
+        uvd.phase_center_app_ra = np.repeat(uvd.phase_center_app_ra[:n_times_per_file], uvd.Nbls)
+        uvd.phase_center_frame_pa = np.tile(uvd.phase_center_frame_pa[:n_times_per_file], uvd.Nbls)
+        uvd.lst_array = np.repeat(lsts[:n_times_per_file], uvd.Nbls)
+        uvd.uvw_array = np.tile(meta.uvw_array[::meta.Ntimes], (uvd.Ntimes,1))
+        uvd.ant_1_array = np.tile(meta.unique_ant_1_array, n_times_per_file)
+        uvd.ant_2_array = np.tile(meta.unique_ant_2_array, n_times_per_file)
+        uvd.baseline_array = np.tile(meta.unique_baseline_array, n_times_per_file)
 
+    logger.info(f"Data has {uvd.Nbls} baselines and {uvd.Ntimes} times per file")
+    logger.debug(f"unique ant_1_array shape: {meta.unique_ant_1_array}")
+    
     uvd.check()  # quick check to make sure we set everything up correctly.
 
     # Get the slices we'll need for each chunk.
-    chunk_slices = get_file_time_slices(raw_files[channels[0]], args.n_times_per_file, args.lst_wrap)
-
+    logger.info("Getting time slices for each output file...")
+    chunk_slices = get_file_time_slices(raw_files[channels[0]], n_times_per_file, lst_wrap)
+    logger.info("Got all time slices")
+    
 #    metas0 = raw_files[channels[0]]
 
     
     for outfile_index, chunk_slices in enumerate(chunk_slices):
-        
+        logger.info(f"Creating data for file {outfile_index + 1}")
         # Update the metadata for this chunk.
-        time_slice = slice(outfile_index*args.n_times_per_file, (outfile_index+1)*args.n_times_per_file)
+        time_slice = slice(outfile_index*n_times_per_file, (outfile_index+1)*n_times_per_file)
         if time_first:
             uvd.time_array = np.tile(times[time_slice], uvd.Nbls)
             uvd.lst_array = np.tile(lsts[time_slice], uvd.Nbls)
@@ -272,7 +314,12 @@ if __name__ == "__main__":
     parser.add_argument(
         "--ignore-missing-channels", action='store_true', help='merely warn if there are no files for a particular channel'
     )
-
+    parser.add_argument(
+        "--assume-same-blt-layout", action='store_true', help='whether to assume each file has the same layout of baselines/times'
+    )
+    parser.add_argument(
+        "--blt-order", nargs=2, help='order of blt axis. Either time/baseline or baseline/time. Note that any order in which the baselines are in the SAME order for each time will be fine.', default='determine'
+)
     args = parse_args(parser)
 
     # Check that the read/write directories actually exist with proper permissions.
@@ -295,9 +342,27 @@ if __name__ == "__main__":
             "directory. Please update the directory choice or permissions."
         )
 
+    # Build the save file prototype.
+    if args.sky_cmp:
+        prototype = "zen.LST.{lst:.7f}." + f"{args.sky_cmp}.uvh5"
+    else:
+        prototype = "zen.LST.{lst:.7f}.uvh5"
+    
+
     channels = sum(
         (list(range(*tuple(map(int, ch.split("~"))))) for ch in args.channels),
         start=[],
     )
 
-    run_with_profiling(chunk_files, args, channels=channels, save_dir=save_dir, base_dir=base_dir)
+    run_with_profiling(
+        chunk_files, args,
+        prototype=prototype,
+        channels=channels,
+        lst_wrap=args.lst_wrap,
+        n_times_per_file=args.chunk_size,
+        save_dir=save_dir, base_dir=base_dir,
+        r_prototype=args.r_prototype,
+        ignore_missing_channels=args.ignore_missing_channels,
+        assume_blt_layout=args.assume_same_blt_layout,
+        blt_order=args.blt_order,
+    )
