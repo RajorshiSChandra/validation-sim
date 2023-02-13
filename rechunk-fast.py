@@ -369,7 +369,10 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--blt-order", nargs=2, help='order of blt axis. Either time/baseline or baseline/time. Note that any order in which the baselines are in the SAME order for each time will be fine.', default='determine'
-)
+    )
+    parser.add_argument(
+        "--max-mem", type=int, default=1e9, help="Maximum memory to use in MB."
+    )
     args = parse_args(parser)
 
     # Check that the read/write directories actually exist with proper permissions.
@@ -415,4 +418,5 @@ if __name__ == "__main__":
         ignore_missing_channels=args.ignore_missing_channels,
         assume_blt_layout=args.assume_same_blt_layout,
         blt_order=args.blt_order,
+        max_mem_mb=args.max_mem,
     )
