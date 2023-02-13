@@ -117,48 +117,90 @@ def get_file_time_slices(meta_list: list[FastUVH5Meta], lsts_per_chunk: int,  ls
         elif meta.lsts[-1] < lst_wrap:
             continue
         else:
-            time_index = np.argwhere(meta.lsts > lst_wrap).flatten()[0]
+            time_index = np.argwhere(meta.lsts >= lst_wrap).flatten()[0]
             break
 
     starting_file = fl_index
     starting_time = time_index
 
     Ntimes = meta_list[0].Ntimes
-    chunks = []
-    while True:
-        chunk = []
-        ntimes_in_this_chunk = 0
+    
+
+    total_times = Ntimes * len(meta_list)
+    logger.info(f"Total times: {total_times}")
+    nchunks = int(np.ceil(total_times / lsts_per_chunk))
+    logger.info(f"Total chunks: {nchunks}")
+    chunks = [[] for _ in range(nchunks)]
+    
+    for chunk in chunks:
+        times_remaining = lsts_per_chunk
+
         while True:
             chunk.append((
                 fl_index,
                 meta_list[fl_index],   # The meta object itself
-                slice(time_index, min(Ntimes, time_index + lsts_per_chunk)) 
+                slice(time_index, min(Ntimes, time_index + times_remaining)) 
             ))
 
             if time_index + lsts_per_chunk >= Ntimes:
-                ntimes_in_this_chunk += Ntimes - time_index
-                time_index = time_index + lsts_per_chunk - Ntimes
+                # We have to use the start of the next file
+                times_remaining -= (Ntimes - time_index)
+                time_index = 0
                 fl_index += 1
                 if fl_index >= len(meta_list):
                     fl_index = 0
             else:
-                ntimes_in_this_chunk += lsts_per_chunk
+                times_remaining = 0
+                time_index += lsts_per_chunk
 
-            if ntimes_in_this_chunk >= lsts_per_chunk:
+            if times_remaining == 0:
                 break
-        
-        if fl_index == starting_file and 0 < time_index - starting_time < lsts_per_chunk:
-            break
 
+    logger.debug(f"CHUNKS: {chunks}")
     return chunks
 
+def reset_time_arrays(uvd, meta, times, lsts, ras, pas, slc, time_first):
+    nt = slc.stop - (slc.start or 0)
 
-def chunk_files(channels, r_prototype: str, save_dir: Path, base_dir: Path, prototype: str, lst_wrap: float = np.pi, n_times_per_file: int = 180, ignore_missing_channels: bool=False, assume_blt_layout: bool = False, blt_order ='determine'):
+    if nt != uvd.Ntimes:
+        uvd.Nblts = uvd.Nbls * nt
+        uvd.integration_time = uvd.integration_time[0] * np.ones(uvd.Nblts)
+        uvd.phase_center_app_dec = uvd.phase_center_app_dec[0] * np.ones(uvd.Nblts)
+        uvd.phase_center_id_array = np.zeros(uvd.Nblts, dtype=int)
+    
+    if time_first:
+        uvd.time_array = np.tile(times[slc], uvd.Nbls)
+        uvd.phase_center_app_ra = np.tile(ras[slc], uvd.Nbls)
+        uvd.phase_center_frame_pa = np.tile(pas[slc], uvd.Nbls)
+        uvd.lst_array = np.tile(lsts[slc], uvd.Nbls)
+        if nt != uvd.Ntimes:
+            uvd.uvw_array = np.repeat(uvd.uvw_array[::meta.Ntimes], nt, axis=0)
+            uvd.ant_1_array = np.repeat(meta.unique_ant_1_array, nt)
+            uvd.ant_2_array = np.repeat(meta.unique_ant_2_array, nt)
+            uvd.baseline_array = np.repeat(meta.unique_baseline_array, nt)
+    else:
+        uvd.time_array = np.repeat(times[slc], uvd.Nbls)
+        uvd.phase_center_app_ra = np.repeat(ras[slc], uvd.Nbls)
+        uvd.phase_center_frame_pa = np.repeat(pas[slc], uvd.Nbls)
+        uvd.lst_array = np.repeat(lsts[slc], uvd.Nbls)
+        if nt != uvd.Ntimes:
+            uvd.uvw_array = np.tile(uvd.uvw_array[:meta.Nbls], (nt,1))
+            uvd.ant_1_array = np.tile(meta.unique_ant_1_array, nt)
+            uvd.ant_2_array = np.tile(meta.unique_ant_2_array, nt)
+            uvd.baseline_array = np.tile(meta.unique_baseline_array, nt)
+
+    uvd.Ntimes = nt
+
+def chunk_files(
+    channels, r_prototype: str, save_dir: Path, base_dir: Path, 
+    prototype: str, lst_wrap: float = np.pi, n_times_per_file: int = 180, 
+    ignore_missing_channels: bool=False, assume_blt_layout: bool = False,
+    blt_order ='determine'
+):
     # Load the read files, and check that the read prototype is valid if provided.
     raw_files = find_all_files(base_dir, channels, r_prototype, ignore_missing_channels, assume_blt_layout, blt_order=blt_order)    
     
     logger.info(f"Number of raw data files: {len(raw_files)}")
-
 
     # Ensure all the files have rectangular blts with the same ordering.
     # This is a requirement for the chunking to work.
@@ -190,13 +232,14 @@ def chunk_files(channels, r_prototype: str, save_dir: Path, base_dir: Path, prot
     times = np.concatenate(times)
     lsts = np.concatenate(lsts)
 
+    if lst_wrap is None:
+        lst_wrap = np.min(lsts)
+
     # Roll the times and lsts around so it's easier to chunk them.
+    lsts[lsts < lst_wrap] += 2*np.pi
     time_index = np.argwhere(lsts >= lst_wrap)[0][0]
     times = np.roll(times, -time_index)
-    lsts = np.roll(lsts, -time_index)
-
-
-    n_chunks = int(np.ceil(len(lsts) / n_times_per_file))
+    lsts = np.roll(lsts, -time_index) % (2*np.pi)
 
     # Make a prototype UVData object for the chunked data.
     uvd = meta.to_uvdata()  # this has too many times, and only one frequency. We update that manually.
@@ -204,83 +247,81 @@ def chunk_files(channels, r_prototype: str, save_dir: Path, base_dir: Path, prot
     uvd.freq_array = freqs
     uvd.Nfreqs = len(freqs)
     uvd.channel_width = np.ones_like(freqs)*(np.diff(freqs)[0])
-    uvd.Nblts = uvd.Nbls * n_times_per_file
-    uvd.Ntimes = n_times_per_file
-    uvd.integration_time = meta.integration_time.flatten()[0] * np.ones(uvd.Nblts)
-    uvd.phase_center_app_dec = uvd.phase_center_app_dec[0] * np.ones(uvd.Nblts)
-    uvd.phase_center_id_array = np.zeros(uvd.Nblts, dtype=int)
     
     if time_first:
-        uvd.time_array = np.tile(times[:n_times_per_file], uvd.Nbls)
-        uvd.phase_center_app_ra = np.tile(uvd.phase_center_app_ra[:n_times_per_file], uvd.Nbls)
-        uvd.phase_center_frame_pa = np.tile(uvd.phase_center_frame_pa[:n_times_per_file], uvd.Nbls)
-        uvd.lst_array = np.tile(lsts[:n_times_per_file], uvd.Nbls)
-        uvd.uvw_array = np.repeat(meta.uvw_array[::meta.Ntimes], uvd.Ntimes, axis=0)
-        uvd.ant_1_array = np.repeat(meta.unique_ant_1_array, n_times_per_file)
-        uvd.ant_2_array = np.repeat(meta.unique_ant_2_array, n_times_per_file)
-        uvd.baseline_array = np.repeat(meta.unique_baseline_array, n_times_per_file)
+        phase_center_ra = uvd.phase_center_app_ra[:meta.Ntimes]
+        phase_center_pa = uvd.phase_center_frame_pa[:meta.Ntimes]
     else:
-        uvd.time_array = np.repeat(times[:n_times_per_file], uvd.Nbls)
-        uvd.phase_center_app_ra = np.repeat(uvd.phase_center_app_ra[:n_times_per_file], uvd.Nbls)
-        uvd.phase_center_frame_pa = np.tile(uvd.phase_center_frame_pa[:n_times_per_file], uvd.Nbls)
-        uvd.lst_array = np.repeat(lsts[:n_times_per_file], uvd.Nbls)
-        uvd.uvw_array = np.tile(meta.uvw_array[::meta.Ntimes], (uvd.Ntimes,1))
-        uvd.ant_1_array = np.tile(meta.unique_ant_1_array, n_times_per_file)
-        uvd.ant_2_array = np.tile(meta.unique_ant_2_array, n_times_per_file)
-        uvd.baseline_array = np.tile(meta.unique_baseline_array, n_times_per_file)
+        phase_center_ra = uvd.phase_center_app_ra[::meta.Nbls]
+        phase_center_pa = uvd.phase_center_frame_pa[::meta.Nbls]
+
+    phase_center_ra = np.roll(phase_center_ra, -time_index)
+    phase_center_pa = np.roll(phase_center_pa, -time_index)
 
     logger.info(f"Data has {uvd.Nbls} baselines and {uvd.Ntimes} times per file")
-    logger.debug(f"unique ant_1_array shape: {meta.unique_ant_1_array}")
-    
-    uvd.check()  # quick check to make sure we set everything up correctly.
 
     # Get the slices we'll need for each chunk.
     logger.info("Getting time slices for each output file...")
     chunk_slices = get_file_time_slices(raw_files[channels[0]], n_times_per_file, lst_wrap)
     logger.info("Got all time slices")
     
-#    metas0 = raw_files[channels[0]]
+    
+    #metas0 = raw_files[channels[0]]
 
     
     for outfile_index, chunk_slices in enumerate(chunk_slices):
         logger.info(f"Creating data for file {outfile_index + 1}")
         # Update the metadata for this chunk.
-        time_slice = slice(outfile_index*n_times_per_file, (outfile_index+1)*n_times_per_file)
-        if time_first:
-            uvd.time_array = np.tile(times[time_slice], uvd.Nbls)
-            uvd.lst_array = np.tile(lsts[time_slice], uvd.Nbls)
-        else:
-            uvd.time_array = np.repeat(times[time_slice], uvd.Nbls)
-            uvd.lst_array = np.repeat(lsts[time_slice], uvd.Nbls)
-        
+        time_slice = slice(outfile_index*n_times_per_file, min(len(times), (outfile_index+1)*n_times_per_file))
+        reset_time_arrays(uvd, meta, times=times, lsts=lsts, ras=phase_center_ra, pas=phase_center_pa, time_first=time_first, slc=time_slice)
+
+        # Check on first, second and last.
+        if outfile_index in [0, 1, len(chunk_slices)-1]:
+            uvd.check()  # quick check to make sure we set everything up correctly.
+
         fname = prototype.format(lst=uvd.lst_array[0])
         pth = save_dir / fname
         
-        # This just writes the header.    
-        uvd.write_uvh5(str(pth), clobber=True)
+        # This just writes the header.
+        uvd.initialize_uvh5_file(pth, clobber=True)
 
         full_dset = np.empty((uvd.Nblts, uvd.Nfreqs, uvd.Npols), dtype=np.complex64)
 
         # Now we need to actually write the data.
         for ich, ch in enumerate(channels):
+            ntimes_left = uvd.Ntimes
             nblts_so_far = 0
+
             for (flidx, meta0, slc) in chunk_slices:
+                if ntimes_left == 0:
+                    break
+
+                this_ntimes = min(slc.stop - slc.start, ntimes_left)
+                this_nblts = this_ntimes * uvd.Nbls
+                
                 # Get the data for this chunk.
                 meta = raw_files[ch][flidx]
                 with h5py.File(str(meta.path), 'r') as fl:
                     if time_first:
-                        slices = [slice(slc.start + n, slc.stop + n) for n in range(uvd.Nbls)]        
+                        slices = [slice(slc.start + n, slc.start + this_ntimes + n) for n in range(uvd.Nbls)]        
                     else:
-                        slices = slice(uvd.Nbls * slc.start, uvd.Nbls * slc.stop)
-                data = fl['Data/visdata'][slices]
+                        slices = slice(uvd.Nbls * slc.start, uvd.Nbls * (slc.start + this_ntimes))
                 
-                full_dset[nblts_so_far:(data.shape[0] + nblts_so_far), ich] = data[:, 0]
-                nblts_so_far += data.shape[0]
+                    data = fl['/Data/visdata'][slices]
+                
+
+                full_dset[nblts_so_far:nblts_so_far + this_nblts, ich] = data[:this_nblts, 0]
+                
+                ntimes_left -= this_ntimes
+                nblts_so_far += this_nblts
+                
         
         # Now write the data.
-        with h5py.File(pth, 'w') as fl:
-            d = fl.create_group('Data')
-            d['visdata'] = full_dset
+        with h5py.File(pth, 'a') as fl:
+            fl['/Data/visdata'][...] = full_dset
+            del full_dset
+#            # Need to give default nsamples as well
+#            fl['/Data/nsamples'][...] = 1.0
 
     
 if __name__ == "__main__":
@@ -306,7 +347,7 @@ if __name__ == "__main__":
         "--chunk-size", type=int, default=180, help="Number of integrations per chunk."
     )
     parser.add_argument(
-        "--lst-wrap", type=float, default=np.pi, help="Where to perform the wrap in LST."
+        "--lst-wrap", type=float, default=None, help="Where to perform the wrap in LST. Default is lowest LST in data."
     )
     parser.add_argument(
         "--clobber", default=False, action="store_true", help="Overwrite existing files."
