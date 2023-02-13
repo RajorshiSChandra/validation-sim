@@ -268,10 +268,13 @@ def chunk_files(
     # Figure out how many frequencies we can fit in the data at once.
     current_mem = ps.memory_info().rss
     mem_left = max_mem_mb*(1024**2) - current_mem - 100*(1024**2)  # leave 100MB for overhead
-    nfreqs = min(mem_left // (n_times_per_file * uvd.Nbls * uvd.Npols * 8), uvd.Nfreqs)
+    mem_per_freq = (n_times_per_file * uvd.Nbls * uvd.Npols * 8)
+    nfreqs = min(mem_left // mem_per_freq, uvd.Nfreqs)
 
     nfreq_chunks = int(np.ceil(uvd.Nfreqs / nfreqs))
-
+    logger.info(f"Going to use {nfreq_chunks} frequency chunks of {nfreqs} frequencies each.")
+    logger.info(f"This is estimated to use {mem_per_freq*nfreqs/1024**2:.2f} MB of memory (of the {mem_left/1024**2} MB left).")
+    logger.info("")
     for outfile_index, chunk_slices in enumerate(chunk_slices):
         logger.info(f"Creating data for file {outfile_index + 1}")
         # Update the metadata for this chunk.
@@ -286,9 +289,11 @@ def chunk_files(
         pth = save_dir / fname
         
         # This just writes the header.
+        logger.info("Initializing UVH5 file...")
         uvd.initialize_uvh5_file(pth, clobber=True)
 
         for freq_chunk in range(nfreq_chunks):
+            logger.info(f"Obtaining frequency chunk {freq_chunk+1}/{nfreq_chunks}...")
             freq_slice = slice(freq_chunk * nfreqs, min((freq_chunk+1)*nfreqs, uvd.Nfreqs))
             this_nfreq = freq_slice.stop - freq_slice.start
             full_dset = np.empty((uvd.Nblts, this_nfreq, uvd.Npols), dtype=np.complex64)
