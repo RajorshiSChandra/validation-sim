@@ -19,21 +19,21 @@ Note that it takes a little over 3 hours of wall time in order to make a single 
 integration chunk using the full band.
 """
 import argparse
-import copy
 import os
-import time
 import logging 
 from hera_cal import io
 from collections import Counter
 
 import h5py
 import numpy as np
+import psutil
 from pyuvdata.uvdata.uvh5 import FastUVH5Meta
 from pyuvdata import utils as uvutils
 from pathlib import Path
 from hera_cal._cli_tools import parse_args, run_with_profiling
 
 logger = logging.getLogger('rechunk')
+ps = psutil.Process()
 
 def find_all_files(
         base_dir: Path,
@@ -120,11 +120,7 @@ def get_file_time_slices(meta_list: list[FastUVH5Meta], lsts_per_chunk: int,  ls
             time_index = np.argwhere(meta.lsts >= lst_wrap).flatten()[0]
             break
 
-    starting_file = fl_index
-    starting_time = time_index
-
     Ntimes = meta_list[0].Ntimes
-    
 
     total_times = Ntimes * len(meta_list)
     logger.info(f"Total times: {total_times}")
@@ -195,7 +191,8 @@ def chunk_files(
     channels, r_prototype: str, save_dir: Path, base_dir: Path, 
     prototype: str, lst_wrap: float = np.pi, n_times_per_file: int = 180, 
     ignore_missing_channels: bool=False, assume_blt_layout: bool = False,
-    blt_order ='determine'
+    blt_order ='determine',
+    max_mem_mb: int = 100000,
 ):
     # Load the read files, and check that the read prototype is valid if provided.
     raw_files = find_all_files(base_dir, channels, r_prototype, ignore_missing_channels, assume_blt_layout, blt_order=blt_order)    
@@ -268,7 +265,13 @@ def chunk_files(
     
     #metas0 = raw_files[channels[0]]
 
-    
+    # Figure out how many frequencies we can fit in the data at once.
+    current_mem = ps.memory_info().rss
+    mem_left = max_mem_mb*(1024**2) - current_mem - 100*(1024**2)  # leave 100MB for overhead
+    nfreqs = min(mem_left // (n_times_per_file * uvd.Nbls * uvd.Npols * 8), uvd.Nfreqs)
+
+    nfreq_chunks = int(np.ceil(uvd.Nfreqs / nfreqs))
+
     for outfile_index, chunk_slices in enumerate(chunk_slices):
         logger.info(f"Creating data for file {outfile_index + 1}")
         # Update the metadata for this chunk.
@@ -285,43 +288,44 @@ def chunk_files(
         # This just writes the header.
         uvd.initialize_uvh5_file(pth, clobber=True)
 
-        full_dset = np.empty((uvd.Nblts, uvd.Nfreqs, uvd.Npols), dtype=np.complex64)
+        for freq_chunk in range(nfreq_chunks):
+            freq_slice = slice(freq_chunk * nfreqs, min((freq_chunk+1)*nfreqs, uvd.Nfreqs))
+            this_nfreq = freq_slice.stop - freq_slice.start
+            full_dset = np.empty((uvd.Nblts, this_nfreq, uvd.Npols), dtype=np.complex64)
 
-        # Now we need to actually write the data.
-        for ich, ch in enumerate(channels):
-            ntimes_left = uvd.Ntimes
-            nblts_so_far = 0
+            # Now we need to actually write the data.
+            for ich, ch in enumerate(channels):
+                ntimes_left = uvd.Ntimes
+                nblts_so_far = 0
 
-            for (flidx, meta0, slc) in chunk_slices:
-                if ntimes_left == 0:
-                    break
+                for (flidx, meta0, slc) in chunk_slices:
+                    if ntimes_left == 0:
+                        break
 
-                this_ntimes = min(slc.stop - slc.start, ntimes_left)
-                this_nblts = this_ntimes * uvd.Nbls
-                
-                # Get the data for this chunk.
-                meta = raw_files[ch][flidx]
-                with h5py.File(str(meta.path), 'r') as fl:
-                    if time_first:
-                        slices = [slice(slc.start + n, slc.start + this_ntimes + n) for n in range(uvd.Nbls)]        
-                    else:
-                        slices = slice(uvd.Nbls * slc.start, uvd.Nbls * (slc.start + this_ntimes))
-                
-                    data = fl['/Data/visdata'][slices]
-                
+                    this_ntimes = min(slc.stop - slc.start, ntimes_left)
+                    this_nblts = this_ntimes * uvd.Nbls
+                    
+                    # Get the data for this chunk.
+                    meta = raw_files[ch][flidx]
+                    with h5py.File(str(meta.path), 'r') as fl:
+                        if time_first:
+                            slices = [slice(slc.start + n, slc.start + this_ntimes + n) for n in range(uvd.Nbls)]        
+                        else:
+                            slices = slice(uvd.Nbls * slc.start, uvd.Nbls * (slc.start + this_ntimes))
+                    
+                        data = fl['/Data/visdata'][slices]
+                    
 
-                full_dset[nblts_so_far:nblts_so_far + this_nblts, ich] = data[:this_nblts, 0]
-                
-                ntimes_left -= this_ntimes
-                nblts_so_far += this_nblts
-                
-        
-        # Now write the data.
-        with h5py.File(pth, 'a') as fl:
-            fl['/Data/visdata'][...] = full_dset
-            del full_dset
-#            # Need to give default nsamples as well
-#            fl['/Data/nsamples'][...] = 1.0
+                    full_dset[nblts_so_far:nblts_so_far + this_nblts, ich] = data[:this_nblts, 0]
+                    
+                    ntimes_left -= this_ntimes
+                    nblts_so_far += this_nblts
+                    
+            
+            # Now write the data.
+            with h5py.File(pth, 'a') as fl:
+                fl['/Data/visdata'][:, freq_slice] = full_dset
+                del full_dset
 
     
 if __name__ == "__main__":
