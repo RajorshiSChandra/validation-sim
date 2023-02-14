@@ -180,6 +180,7 @@ def chunk_files(
     max_mem_mb: int = 100000,
     nthreads: int | None = None,
     is_rectangular: bool | None = None,
+    max_freq_chunk_size: int = 100000000,
 ):
     # Load the read files, and check that the read prototype is valid if provided.
     raw_files = find_all_files(base_dir, channels, r_prototype, ignore_missing_channels, assume_blt_layout, is_rectangular=is_rectangular)
@@ -256,7 +257,7 @@ def chunk_files(
     current_mem = ps.memory_info().rss
     mem_left = max_mem_mb*(1024**2) - current_mem - 100*(1024**2)  # leave 100MB for overhead
     mem_per_freq = (n_times_per_file * uvd.Nbls * uvd.Npols * 8)
-    nfreqs = min(mem_left // mem_per_freq, uvd.Nfreqs)
+    nfreqs = min(mem_left // mem_per_freq, uvd.Nfreqs, max_freq_chunk_size)
 
     nfreq_chunks = int(np.ceil(uvd.Nfreqs / nfreqs))
     logger.info(f"Going to use {nfreq_chunks} frequency chunks of {nfreqs} frequencies each.")
@@ -298,7 +299,7 @@ def chunk_files(
                 partial(
                     write_freq_chunk, ntimes=uvd.Ntimes, chunk_slices=chunk_slices, 
                     nbls=uvd.Nbls, raw_files=raw_file_paths, time_first=time_first, 
-                    shape=SHAPE, channels=channels
+                    shape=SHAPE, channels=channels, start_index=freq_slice.start
                 ), 
                 range(freq_slice.start, freq_slice.stop)
             )
@@ -308,7 +309,7 @@ def chunk_files(
                 fl['/Data/visdata'][:, freq_slice] = full_dset
                 del full_dset
 
-def write_freq_chunk(ich: int, ntimes, chunk_slices, nbls, raw_files, time_first, shape, channels):
+def write_freq_chunk(ich: int, ntimes, chunk_slices, nbls, raw_files, time_first, shape, channels, start_index):
     ntimes_left = ntimes
     nblts_so_far = 0
     ch = channels[ich]
@@ -334,7 +335,7 @@ def write_freq_chunk(ich: int, ntimes, chunk_slices, nbls, raw_files, time_first
             data = fl['/Data/visdata'][slices]
         
 
-        full_dset[nblts_so_far:nblts_so_far + this_nblts, ich] = data[:this_nblts, 0]
+        full_dset[nblts_so_far:nblts_so_far + this_nblts, ich-start_index] = data[:this_nblts, 0]
         
         ntimes_left -= this_ntimes
         nblts_so_far += this_nblts
@@ -384,6 +385,9 @@ if __name__ == "__main__":
     parser.add_argument(
         "--nthreads", type=int, default=None, help="Number of threads to use."
     )
+    parser.add_argument(
+        "--max-freq-chunk-size", type=int, default=1e6, help="Maximum number of frequencies to read at once. Setting --max-mem will try autodetect optimal setting."
+    )
     args = parse_args(parser)
 
     # Check that the read/write directories actually exist with proper permissions.
@@ -431,4 +435,5 @@ if __name__ == "__main__":
         is_rectangular=args.is_rectangular,
         max_mem_mb=args.max_mem,
         nthreads=args.nthreads,
+        max_freq_chunk_size=args.max_freq_chunk_size,
     )
