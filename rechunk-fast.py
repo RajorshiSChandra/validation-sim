@@ -31,7 +31,7 @@ from pyuvdata.uvdata.uvh5 import FastUVH5Meta
 from pyuvdata import utils as uvutils
 from pathlib import Path
 from hera_cal._cli_tools import parse_args, run_with_profiling
-from multiprocessing import shared_memory, Pool, cpu_count
+from multiprocessing import shared_memory, Pool, cpu_count, set_start_method
 from functools import partial
 
 logger = logging.getLogger('rechunk')
@@ -263,6 +263,10 @@ def chunk_files(
     logger.info(f"Going to use {nfreq_chunks} frequency chunks of {nfreqs} frequencies each.")
     logger.info(f"This is estimated to use {mem_per_freq*nfreqs/1024**2:.2f} MB of memory (of the {mem_left/1024**2} MB left).")
     logger.info("")
+
+    MAXSHAPE = (uvd.Nblts, nfreqs, uvd.Npols)
+    shm = shared_memory.SharedMemory(create=True, size=np.dtype(np.complex64).itemsize * np.prod(MAXSHAPE), name='FULLDSET')
+
     for outfile_index, chunk_slices in enumerate(chunk_slices):
         logger.info(f"Creating data for file {outfile_index + 1}")
         # Update the metadata for this chunk.
@@ -287,14 +291,10 @@ def chunk_files(
             logger.info(f"Obtaining frequency chunk {freq_chunk+1}/{nfreq_chunks}...")
             freq_slice = slice(freq_chunk * nfreqs, min((freq_chunk+1)*nfreqs, uvd.Nfreqs))
             this_nfreq = freq_slice.stop - freq_slice.start
-            SHAPE = (uvd.Nblts, this_nfreq, uvd.Npols)
-#            full_dset = np.empty(, dtype=np.complex64)
-
-            shm = shared_memory.SharedMemory(create=True, size=np.dtype(np.complex64).itemsize * np.prod(SHAPE), name='FULLDSET')
+            SHAPE = (uvd.Nblts, this_nfreq, uvd.Npols)           
             full_dset = np.ndarray(SHAPE, dtype=np.complex64, buffer=shm.buf)
 
             # Now we need to actually write the data.
-            
             pool.map(
                 partial(
                     write_freq_chunk, ntimes=uvd.Ntimes, chunk_slices=chunk_slices, 
@@ -303,11 +303,14 @@ def chunk_files(
                 ), 
                 range(freq_slice.start, freq_slice.stop)
             )
-            shm.unlink()
+
             # Now write the data.
             with h5py.File(pth, 'a') as fl:
                 fl['/Data/visdata'][:, freq_slice] = full_dset
-                del full_dset
+            del full_dset
+    shm.close()
+    shm.unlink()
+
 
 def write_freq_chunk(ich: int, ntimes, chunk_slices, nbls, raw_files, time_first, shape, channels, start_index):
     ntimes_left = ntimes
@@ -340,10 +343,11 @@ def write_freq_chunk(ich: int, ntimes, chunk_slices, nbls, raw_files, time_first
         ntimes_left -= this_ntimes
         nblts_so_far += this_nblts
     
-    shm.close()
+    # shm.close()
+#    shm.unlink()
 
 if __name__ == "__main__":
-
+    #set_start_method('forkserver')
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "base_dir", type=str, help="Path to directory containing simulation data."
