@@ -13,3 +13,4 @@ profiling/*
 *.fits
 *.png
 *.pdf
+test-rechunk-script/*

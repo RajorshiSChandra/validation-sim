@@ -31,6 +31,8 @@ from pyuvdata.uvdata.uvh5 import FastUVH5Meta
 from pyuvdata import utils as uvutils
 from pathlib import Path
 from hera_cal._cli_tools import parse_args, run_with_profiling
+from multiprocessing import shared_memory, Pool, cpu_count
+from functools import partial
 
 logger = logging.getLogger('rechunk')
 ps = psutil.Process()
@@ -41,7 +43,7 @@ def find_all_files(
         prototype: str,
         ignore_missing_channels: bool = False,
         assume_blt_layout: bool = False,
-        blt_order='determine',
+        is_rectangular: bool | None = None,
 ):
     all_files = {}
     for ch in channels:
@@ -74,33 +76,17 @@ def find_all_files(
         logger.info(f"Found {count} channels with {nc} chunks")
 
     # Turn them all into metadata objects.
-    fl0 = FastUVH5Meta(all_files[channels[0]][0], blt_order=blt_order)
-    logger.info(f"blt_order orig: {blt_order}")
-    blt_order = tuple(fl0.blt_order)
-    logger.info(f"blt_order after: {blt_order}")
+    fl0 = FastUVH5Meta(all_files[channels[0]][0], blts_are_rectangular=is_rectangular)
     
-    if blt_order in (("ant1", "time"), ("time", "ant1")):
-        # There's a possibility that it's actually time-bl or bl-time
-        blt_order = uvutils.determine_blt_order(
-            time_array=fl0.time_array,
-            ant_1_array=fl0.ant_1_array,
-            ant_2_array=fl0.ant_2_array,
-            baseline_array=fl0.baseline_array,
-            Nbls=fl0.Nbls,
-            Ntimes=fl0.Ntimes,
-        )
-
-    if blt_order not in (("baseline","time"), ("time", "baseline")):
-        raise ValueError("Your first file is not in baseline/time or time/baseline order. This script only works for those orderings...")
-        
-    logger.info(f"First file has blt_order: {blt_order}")
-
-
-    if assume_blt_layout:
-        logger.info(f"Assuming blt_order={blt_order} for all files")
+    if not fl0.blts_are_rectangular:
+        raise ValueError("Your first file is not rectangular. This script only works for rectangular files...")
         
     for ch in channels:
-        all_files[ch] = [FastUVH5Meta(fl, blt_order=blt_order if assume_blt_layout else 'determine') for fl in all_files[ch]]
+        all_files[ch] = [FastUVH5Meta(
+            fl,
+            blts_are_rectangular=fl0.blts_are_rectangular if assume_blt_layout else None, 
+            time_first=fl0._time_first if assume_blt_layout else None
+        ) for fl in all_files[ch]]
 
     return all_files
 
@@ -134,7 +120,6 @@ def get_file_time_slices(meta_list: list[FastUVH5Meta], lsts_per_chunk: int,  ls
         while True:
             chunk.append((
                 fl_index,
-                meta_list[fl_index],   # The meta object itself
                 slice(time_index, min(Ntimes, time_index + times_remaining)) 
             ))
 
@@ -193,9 +178,11 @@ def chunk_files(
     ignore_missing_channels: bool=False, assume_blt_layout: bool = False,
     blt_order ='determine',
     max_mem_mb: int = 100000,
+    nthreads: int | None = None,
+    is_rectangular: bool | None = None,
 ):
     # Load the read files, and check that the read prototype is valid if provided.
-    raw_files = find_all_files(base_dir, channels, r_prototype, ignore_missing_channels, assume_blt_layout, blt_order=blt_order)    
+    raw_files = find_all_files(base_dir, channels, r_prototype, ignore_missing_channels, assume_blt_layout, is_rectangular=is_rectangular)
     
     logger.info(f"Number of raw data files: {len(raw_files)}")
 
@@ -292,47 +279,68 @@ def chunk_files(
         logger.info("Initializing UVH5 file...")
         uvd.initialize_uvh5_file(pth, clobber=True)
 
+        pool = Pool(nthreads or cpu_count())
+        raw_file_paths = {ch: [f.path for f in raw_files[ch]] for ch in channels}
+
         for freq_chunk in range(nfreq_chunks):
             logger.info(f"Obtaining frequency chunk {freq_chunk+1}/{nfreq_chunks}...")
             freq_slice = slice(freq_chunk * nfreqs, min((freq_chunk+1)*nfreqs, uvd.Nfreqs))
             this_nfreq = freq_slice.stop - freq_slice.start
-            full_dset = np.empty((uvd.Nblts, this_nfreq, uvd.Npols), dtype=np.complex64)
+            SHAPE = (uvd.Nblts, this_nfreq, uvd.Npols)
+#            full_dset = np.empty(, dtype=np.complex64)
+
+            shm = shared_memory.SharedMemory(create=True, size=np.dtype(np.complex64).itemsize * np.prod(SHAPE), name='FULLDSET')
+            full_dset = np.ndarray(SHAPE, dtype=np.complex64, buffer=shm.buf)
 
             # Now we need to actually write the data.
-            for ich, ch in enumerate(channels[freq_slice]):
-                ntimes_left = uvd.Ntimes
-                nblts_so_far = 0
-
-                for (flidx, meta0, slc) in chunk_slices:
-                    if ntimes_left == 0:
-                        break
-
-                    this_ntimes = min(slc.stop - slc.start, ntimes_left)
-                    this_nblts = this_ntimes * uvd.Nbls
-                    
-                    # Get the data for this chunk.
-                    meta = raw_files[ch][flidx]
-                    with h5py.File(str(meta.path), 'r') as fl:
-                        if time_first:
-                            slices = [slice(slc.start + n, slc.start + this_ntimes + n) for n in range(uvd.Nbls)]        
-                        else:
-                            slices = slice(uvd.Nbls * slc.start, uvd.Nbls * (slc.start + this_ntimes))
-                    
-                        data = fl['/Data/visdata'][slices]
-                    
-
-                    full_dset[nblts_so_far:nblts_so_far + this_nblts, ich] = data[:this_nblts, 0]
-                    
-                    ntimes_left -= this_ntimes
-                    nblts_so_far += this_nblts
-                    
             
+            pool.map(
+                partial(
+                    write_freq_chunk, ntimes=uvd.Ntimes, chunk_slices=chunk_slices, 
+                    nbls=uvd.Nbls, raw_files=raw_file_paths, time_first=time_first, 
+                    shape=SHAPE, channels=channels
+                ), 
+                range(freq_slice.start, freq_slice.stop)
+            )
+            shm.unlink()
             # Now write the data.
             with h5py.File(pth, 'a') as fl:
                 fl['/Data/visdata'][:, freq_slice] = full_dset
                 del full_dset
 
+def write_freq_chunk(ich: int, ntimes, chunk_slices, nbls, raw_files, time_first, shape, channels):
+    ntimes_left = ntimes
+    nblts_so_far = 0
+    ch = channels[ich]
+
+    shm = shared_memory.SharedMemory(name='FULLDSET')
+    full_dset = np.ndarray(shape, dtype=np.complex64, buffer=shm.buf)
+
+    for (flidx, slc) in chunk_slices:
+        if ntimes_left == 0:
+            break
+
+        this_ntimes = min(slc.stop - slc.start, ntimes_left)
+        this_nblts = this_ntimes * nbls
+        
+        # Get the data for this chunk.
+        pth = raw_files[ch][flidx]
+        with h5py.File(pth, 'r') as fl:
+            if time_first:
+                slices = [slice(slc.start + n, slc.start + this_ntimes + n) for n in range(nbls)]
+            else:
+                slices = slice(nbls * slc.start, nbls * (slc.start + this_ntimes))
+        
+            data = fl['/Data/visdata'][slices]
+        
+
+        full_dset[nblts_so_far:nblts_so_far + this_nblts, ich] = data[:this_nblts, 0]
+        
+        ntimes_left -= this_ntimes
+        nblts_so_far += this_nblts
     
+    shm.close()
+
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description=__doc__)
@@ -368,10 +376,13 @@ if __name__ == "__main__":
         "--assume-same-blt-layout", action='store_true', help='whether to assume each file has the same layout of baselines/times'
     )
     parser.add_argument(
-        "--blt-order", nargs=2, help='order of blt axis. Either time/baseline or baseline/time. Note that any order in which the baselines are in the SAME order for each time will be fine.', default='determine'
+        "--is-rectangular", action='store_true', help='whether blts are rectangular', 
     )
     parser.add_argument(
         "--max-mem", type=int, default=1e9, help="Maximum memory to use in MB."
+    )
+    parser.add_argument(
+        "--nthreads", type=int, default=None, help="Number of threads to use."
     )
     args = parse_args(parser)
 
@@ -417,6 +428,7 @@ if __name__ == "__main__":
         r_prototype=args.r_prototype,
         ignore_missing_channels=args.ignore_missing_channels,
         assume_blt_layout=args.assume_same_blt_layout,
-        blt_order=args.blt_order,
+        is_rectangular=args.is_rectangular,
         max_mem_mb=args.max_mem,
+        nthreads=args.nthreads,
     )
