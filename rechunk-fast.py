@@ -299,7 +299,7 @@ def chunk_files(
             full_dset = np.empty((uvd.Nblts, this_nfreq, uvd.Npols), dtype=np.complex64)
 
             # Now we need to actually write the data.
-            for ich, ch in enumerate(channels):
+            for ich, ch in enumerate(channels[freq_slice]):
                 ntimes_left = uvd.Ntimes
                 nblts_so_far = 0
 
