@@ -1,0 +1,8 @@
+beam_paths:
+  0: '/ilifu/astro/projects/hera/Validation/h4c_sim/config_files/NF_HERA_Vivaldi_efield_beam_extrap.fits'
+telescope_location: (-30.72152612068957, 21.428303826863015, 1051.6900000218302)
+telescope_name: HERA
+freq_interp_kind: 'cubic'
+spline_interp_opts:
+        kx: 1
+        ky: 1
