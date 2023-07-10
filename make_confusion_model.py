@@ -84,7 +84,7 @@ def make_sky_model(fch):
     # Transform coordinates of the GSM pixels from Galactic to ICRS.
     confusion_model.transform_to("icrs")
 
-    utils.write(confusion_model, f"confusion_nside{out_nside}", fch)
+    utils.write_sky(confusion_model, f"confusion_nside{out_nside}", fch)
 
 
 if __name__ == "__main__":

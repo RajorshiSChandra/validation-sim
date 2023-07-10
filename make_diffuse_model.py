@@ -129,7 +129,7 @@ def make_sky_model(fch):
     # Transform coordinates of the GSM pixels from Galactic to ICRS.
     diffuse_model.transform_to("icrs")
 
-    utils.write(diffuse_model, f"diffuse_nside{out_nside}", fch)
+    utils.write_sky(diffuse_model, f"diffuse_nside{out_nside}", fch)
 
 
 if __name__ == "__main__":
