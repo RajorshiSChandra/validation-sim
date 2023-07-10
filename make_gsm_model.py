@@ -11,7 +11,7 @@ from pygdsm import GlobalSkyModel
 import utils
 
 # H4C frequencies
-FREQ_ARRAY = utils.freqs
+FREQ_ARRAY = utils.h4c_freqs
 
 
 def make_gsm_map(f, smooth=True, nside=128):

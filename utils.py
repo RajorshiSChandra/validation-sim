@@ -7,10 +7,10 @@ import numpy as np
 REPODIR = Path(__file__).parent.parent.absolute()
 SKYDIR = Path(__file__).parent.absolute()
 
-with open(REPODIR / "freqs.yaml", "r") as fl:
+with open(REPODIR / "h4c_freqs.yaml", "r") as fl:
     freq_info = yaml.load(fl, Loader=yaml.FullLoader)
 
-freqs = np.arange(
+h4c_freqs = np.arange(
     freq_info["start"], freq_info["end"] + freq_info["delta"] / 2, freq_info["delta"]
 )
 

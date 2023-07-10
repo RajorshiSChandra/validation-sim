@@ -10,7 +10,7 @@ from astropy import units as u
 import utils
 
 # H4C frequencies
-FREQ_ARRAY = utils.freqs
+FREQ_ARRAY = utils.h4c_freqs
 
 
 def make_confusion_map(f, nside=128):

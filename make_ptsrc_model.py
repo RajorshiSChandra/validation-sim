@@ -6,7 +6,7 @@ import astropy.units as u
 from pyradiosky import SkyModel
 import utils
 
-FREQ_ARRAY = utils.freqs * u.Hz
+FREQ_ARRAY = utils.h4c_freqs * u.Hz
 
 ptsrc_dir = utils.SKYDIR / 'ptsrc'
 
