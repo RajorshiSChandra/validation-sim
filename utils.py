@@ -4,8 +4,8 @@ from pathlib import Path
 import yaml
 import numpy as np
 
-REPODIR = Path(__file__).parent.parent.absolute()
-SKYDIR = Path(__file__).parent.absolute()
+REPODIR = Path(__file__).parent.absolute()
+SKYDIR = REPODIR / "sky_models"
 
 with open(REPODIR / "h4c_freqs.yaml", "r") as fl:
     freq_info = yaml.load(fl, Loader=yaml.FullLoader)
