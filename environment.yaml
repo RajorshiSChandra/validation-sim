@@ -25,8 +25,8 @@ dependencies:
     - hera-calibration
     - vis-cpu==1.1.0
     - hera_sim==4.1.0
-    - pyuvdata==2.3.3
+    - pyuvdata==2.4
     - pyradiosky==0.3.0
-    - git+https://github.com/RadioAstronomySoftwareGroup/pyuvsim.git
-    - git+https://github.com/telegraphic/pygdsm.git
-    - git+https://github.com/HERA-Team/uvtools.git
+    - git+https://github.com/RadioAstronomySoftwareGroup/pyuvsim.git  # Require for pyuvdata >= 2.3
+    - pygdsm==1.3.0
+    - uvtools==0.2.0  # TODO: Check if actually using
