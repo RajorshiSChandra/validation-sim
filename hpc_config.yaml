@@ -1,0 +1,18 @@
+# Template for HPC config for run_sim.py
+conda:
+  conda_path: "~/miniconda3"
+  environment_name: "viscpu"
+module: 
+  - "openmpi"
+  - "cuda"
+slurm:
+  mem: 8  # GB
+  partition: "Main"  # Name of partition
+  nodes: 1  # Number of nodes
+  ntasks: 1  # Number of tasks
+  cpus-per-task: 2  # Number of CPUs per task
+  time:
+  # Ignore for H4C, H6C validation sims
+  job-name: "sim" # Maybe default to a pattern
+  log-dir: "logs" # Maybe just fixed to ./logs
+  log-name: "sim" # Maybe just based on jobname
