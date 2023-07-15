@@ -56,7 +56,7 @@ def make_obsparams():
     "--sky_model",
     default="ptsrc",
     show_default=True,
-    type=click.Choice(["ptsrc", "diffuse_nside128", "eor"], case_sensitive=True),
+    type=click.Choice(["ptsrc", "diffuse_nside256", "eor"], case_sensitive=True),
     help="Sky model to simulate",
 )
 @click.option(
