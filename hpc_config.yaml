@@ -1,18 +1,27 @@
 # Template for HPC config for run_sim.py
+# None-number values should be quoted 
 conda:
+  # Shorten path will be resolved
   conda_path: "~/miniconda3"
-  environment_name: "viscpu"
-module: 
+  environment_name: "h4c"
+module:
+  # List environment modules to load
   - "openmpi"
   - "cuda"
 slurm:
-  mem: 8  # GB
+  # SLURM SBATCH options, listed as --flag: value
+  # Flags not shown here should work
   partition: "Main"  # Name of partition
   nodes: 1  # Number of nodes
+  mem: "8GB"  # Memory with unit
   ntasks: 1  # Number of tasks
   cpus-per-task: 2  # Number of CPUs per task
-  time:
-  # Ignore for H4C, H6C validation sims
-  job-name: "sim" # Maybe default to a pattern
-  log-dir: "logs" # Maybe just fixed to ./logs
-  log-name: "sim" # Maybe just based on jobname
+  time: "0-00:30:00"  # slurm-aware time string format
+  gpus: 1  # Number of GPU
+  gres: "gpu:1"  # Some cluster do not support --gpus flag
+  # Job name, will be modified to <sky_model>-fch<freq_chan>-chunk<chunk> 
+  # when running H4C sim via run_sim.py
+  job-name: "hera-sim"
+  # Filename for SLURM STD Out, i.e. the log file
+  # H4C sim default to logs/<job-name>-<job-number>.out
+  output: "logs/%x-%j.out"
