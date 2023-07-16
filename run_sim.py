@@ -6,6 +6,8 @@ import numpy as np
 import yaml
 import click
 import utils
+from make_obsparams import make_h4c_obsparam
+
 
 H4C_FREQS = utils.H4C_FREQS
 REPODIR = utils.REPODIR
@@ -98,18 +100,28 @@ def run_sim():
     "allow multiple",
 )
 @click.option(
+    "--skip-existing/--rerun-existing",
+    default=True,
+    show_default=True,
+    help="Skip or rerun if the simulation output already exists",
+)
+@click.option(
+    "--make-missing-obsparam/--skip-missing-obsparam",
+    default=True,
+    show_default=True,
+    help="Make the obsparam or skip running the simulation if the obsparam is missing",
+)
+@click.option(
+    "--remake-all-obsparams",
+    is_flag=True,
+    help="If set, remake all obsparams before running the simulations",
+)
+@click.option(
     "--log-level",
     default="WARNING",
     type=click.Choice(["INFO", "WARNING", "ERROR", "DEBUG"], case_sensitive=True),
     show_default=True,
     help="Verbosity level, also pass the flag to hera-sim-vis.py",
-)
-@click.option(
-    "--clobber/--skip-existing-output",
-    default=False,
-    show_default=True,
-    help="Run the simulation and overwrite regardless of wheather the output already "
-    "exists, or skip it",
 )
 @click.option("-d", "--dry-run", is_flag=True, help="Pass the flag to hera-sim-vis.py")
 def h4c(
@@ -120,7 +132,9 @@ def h4c(
     gpu,
     hpc_config,
     slurm_override,
-    clobber,
+    skip_existing,
+    make_missing_obsparam,
+    remake_all_obsparams,
     log_level,
     dry_run,
 ):
@@ -155,20 +169,30 @@ def h4c(
     if freqs:
         extra_freqs = freqs[np.isin(freqs, freq_chans, invert=True)]
         freq_chans = np.append(freq_chans, extra_freqs)
+
+    if remake_all_obsparams:
+        make_h4c_obsparam(freq_range, freqs, sky_model, chunks)
+
     for fch in freq_chans:
         for ch in range(chunks):
             # TODO: later remove nt17280
             outfile = out_dir / f"{sky_model}_fch{fch:04d}_nt17280_chunk{ch}.uvh5"
             # Check if output file already existed, if clobber is False
-            if not clobber and outfile.exists():
+            if skip_existing and outfile.exists():
                 logger.warning(f"File {outfile} exists, skipping")
             else:
-                # TODO: Add an option to skip or remake obsparam
                 # TODO: later remove nt1780
                 obsparam = config_dir / f"fch{fch:04d}_chunk{ch}.yaml"
                 if not obsparam.exists():
-                    logger.warning(f"{obsparam} does not exist, skipping")
-                    # TODO: later add option to automatically make obsparam
+                    if make_missing_obsparam:
+                        make_h4c_obsparam(
+                            freq_range=(fch, fch + 1),
+                            freqs=None,
+                            sky_model=sky_model,
+                            chunks=chunks,
+                        )
+                    else:
+                        logger.warning(f"{obsparam} does not exist, skipping")
                 else:
                     cmd = f"hera-sim-vis.py {sim_options} {obsparam} {simulator_config}"
                     if hpc_config:
