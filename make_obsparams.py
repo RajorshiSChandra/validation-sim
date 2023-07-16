@@ -65,8 +65,15 @@ def make_obsparams():
     show_default=True,
     help="Split simulation into a number of time chunks",
 )
-def make_h4c_obsparam(freq_range, freqs, sky_model, chunks):
+def h4c(freq_range, freqs, sky_model, chunks):
     """Make an obsparams for H4C sim given a sky model and frequencies."""
+    _make_h4c_obsparam(freq_range, freqs, sky_model, chunks)
+
+
+def _make_h4c_obsparam(freq_range, freqs, sky_model, chunks):
+    """Logic of the h4c cli function.
+
+    This allow the function to be called from other modules."""
     freq_chans = np.arange(*freq_range)
     if freqs:
         extra_freqs = freqs[np.isin(freqs, freq_chans, invert=True)]
