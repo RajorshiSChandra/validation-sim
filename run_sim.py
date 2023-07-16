@@ -6,7 +6,7 @@ import numpy as np
 import yaml
 import click
 import utils
-from make_obsparams import make_h4c_obsparam
+from make_obsparams import _make_h4c_obsparam
 
 
 H4C_FREQS = utils.H4C_FREQS
@@ -169,12 +169,15 @@ def h4c(
     if freqs:
         extra_freqs = freqs[np.isin(freqs, freq_chans, invert=True)]
         freq_chans = np.append(freq_chans, extra_freqs)
+    logger.info(f"Frequency channels to run: {freq_chans}")
 
     if remake_all_obsparams:
-        make_h4c_obsparam(freq_range, freqs, sky_model, chunks)
+        logger.info("Remaking all obsparams")
+        _make_h4c_obsparam(freq_range, freqs, sky_model, chunks)
 
     for fch in freq_chans:
         for ch in range(chunks):
+            logger.info(f"Working on frequency channel {fch} chunk {ch}")
             # TODO: later remove nt17280
             outfile = out_dir / f"{sky_model}_fch{fch:04d}_nt17280_chunk{ch}.uvh5"
             # Check if output file already existed, if clobber is False
@@ -185,7 +188,7 @@ def h4c(
                 obsparam = config_dir / f"fch{fch:04d}_chunk{ch}.yaml"
                 if not obsparam.exists():
                     if make_missing_obsparam:
-                        make_h4c_obsparam(
+                        _make_h4c_obsparam(
                             freq_range=(fch, fch + 1),
                             freqs=None,
                             sky_model=sky_model,
@@ -211,7 +214,7 @@ def h4c(
                         ) if not dry_run else None
                         logger.info(f"\n===Job Script===\n{job_script}\n===END===\n")
                     else:
-                        logger.info("Running the simulation locally\nCommand: {cmd}")
+                        logger.info(f"Running the simulation locally\nCommand: {cmd}")
                         subprocess.call(cmd.split()) if not dry_run else None
 
 
