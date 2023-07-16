@@ -112,7 +112,7 @@ def run_sim():
     help="Make the obsparam or skip running the simulation if the obsparam is missing",
 )
 @click.option(
-    "--remake-all-obsparams",
+    "--force-remake-obsparams",
     is_flag=True,
     help="If set, remake all obsparams before running the simulations",
 )
@@ -134,7 +134,7 @@ def h4c(
     slurm_override,
     skip_existing,
     make_missing_obsparam,
-    remake_all_obsparams,
+    force_remake_obsparams,
     log_level,
     dry_run,
 ):
@@ -171,7 +171,7 @@ def h4c(
         freq_chans = np.append(freq_chans, extra_freqs)
     logger.info(f"Frequency channels to run: {freq_chans}")
 
-    if remake_all_obsparams:
+    if force_remake_obsparams:
         logger.info("Remaking all obsparams")
         _make_h4c_obsparam(freq_range, freqs, sky_model, chunks)
 
