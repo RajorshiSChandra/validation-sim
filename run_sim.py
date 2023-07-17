@@ -43,9 +43,12 @@ conda activate {environment_name}
     return program
 
 
+"""===CLI==="""
+
+
 @click.group(context_settings=CONTEXT_SETTINGS)
 def run_sim():
-    """For grouping click commands"""
+    """Make a job script to run visibility simulation via hera-sim-vis.py"""
     pass
 
 
@@ -138,7 +141,7 @@ def h4c(
     log_level,
     dry_run,
 ):
-    """Make a job script to run H4C validation sims via hera-sim-vis.py.
+    """Run H4C validation simulations.
 
     Use the default parameters, configuration files, and directories for H4C sims
     (see make_obsparams.py).
