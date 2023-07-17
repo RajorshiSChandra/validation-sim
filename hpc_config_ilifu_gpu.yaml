@@ -16,7 +16,7 @@ slurm:
   mem: "24GB"  # Memory with unit
   ntasks: 1  # Number of tasks
   # cpus-per-task: 2  # Number of CPUs per task
-  time: "0-00:30:00"  # slurm-aware time string format
+  time: "0-00:60:00"  # slurm-aware time string format
   # gpus: 1  # Number of GPU
   gres: "gpu:1"  # Some cluster do not support --gpus flag
   # Job name, will be modified to <sky_model>-fch<freq_chan>-chunk<chunk> 
