@@ -25,51 +25,6 @@ def quoted_presenter(dumper, data):
 yaml.add_representer(str, quoted_presenter)
 
 
-@click.group(context_settings=CONTEXT_SETTINGS)
-def make_obsparams():
-    """For grouping click commands"""
-    pass
-
-
-# TODO: These options are the same as options in `run_sim.py`. We can define them as
-# a variable in utils and do @variable.
-@make_obsparams.command("h4c")
-@click.option(
-    "-fr",
-    "--freq-range",
-    nargs=2,
-    default=(0, len(H4C_FREQS)),
-    show_default=True,
-    type=click.IntRange(0, len(H4C_FREQS)),
-    help="Frequency channel range to simulate",
-)
-@click.option(
-    "-fch",
-    "--freqs",
-    multiple=True,
-    default=None,
-    type=click.IntRange(0, len(H4C_FREQS)),
-    help="Frequency channel, allow multiple, add to --freq-range",
-)
-@click.option(
-    "-sm",
-    "--sky_model",
-    default="ptsrc",
-    show_default=True,
-    type=click.Choice(["ptsrc", "diffuse_nside256", "eor"], case_sensitive=True),
-    help="Sky model to simulate",
-)
-@click.option(
-    "--chunks",
-    default=3,
-    show_default=True,
-    help="Split simulation into a number of time chunks",
-)
-def h4c(freq_range, freqs, sky_model, chunks):
-    """Make an obsparams for H4C sim given a sky model and frequencies."""
-    _make_h4c_obsparam(freq_range, freqs, sky_model, chunks)
-
-
 def _make_h4c_obsparam(freq_range, freqs, sky_model, chunks):
     """Logic of the h4c cli function.
 
@@ -123,5 +78,53 @@ def _make_h4c_obsparam(freq_range, freqs, sky_model, chunks):
                 yaml.dump(obsparams, stream, default_flow_style=False, sort_keys=False)
 
 
+"""===CLI==="""
+
+
+@click.group(context_settings=CONTEXT_SETTINGS)
+def cli():
+    """Make the obsparam configuration files for visibiliy simulations."""
+    pass
+
+
+# TODO: These options are the same as options in `run_sim.py`. We can define them as
+# a variable in utils and do @variable.
+@cli.command("h4c")
+@click.option(
+    "-fr",
+    "--freq-range",
+    nargs=2,
+    default=(0, len(H4C_FREQS)),
+    show_default=True,
+    type=click.IntRange(0, len(H4C_FREQS)),
+    help="Frequency channel range to simulate",
+)
+@click.option(
+    "-fch",
+    "--freqs",
+    multiple=True,
+    default=None,
+    type=click.IntRange(0, len(H4C_FREQS)),
+    help="Frequency channel, allow multiple, add to --freq-range",
+)
+@click.option(
+    "-sm",
+    "--sky_model",
+    default="ptsrc",
+    show_default=True,
+    type=click.Choice(["ptsrc", "diffuse_nside256", "eor"], case_sensitive=True),
+    help="Sky model to simulate",
+)
+@click.option(
+    "--chunks",
+    default=3,
+    show_default=True,
+    help="Split simulation into a number of time chunks",
+)
+def h4c_cli(freq_range, freqs, sky_model, chunks):
+    """Make obsparams for H4C simulations given a sky model and frequencies."""
+    _make_h4c_obsparam(freq_range, freqs, sky_model, chunks)
+
+
 if __name__ == "__main__":
-    make_obsparams()
+    cli()
