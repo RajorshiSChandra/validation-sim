@@ -17,6 +17,9 @@ CONTEXT_SETTINGS = dict(help_option_names=["-h", "--help"], max_content_width=10
 logger = logging.getLogger(__name__)
 
 
+# ===LOGIC===
+
+
 def _get_sbatch_program(hpc_config: str | Path, slurm_override=None):
     with open(hpc_config, "r") as fl:
         hpc_params = yaml.safe_load(fl)
@@ -43,91 +46,7 @@ conda activate {environment_name}
     return program
 
 
-"""===CLI==="""
-
-
-@click.group(context_settings=CONTEXT_SETTINGS)
-def run_sim():
-    """Make a job script to run visibility simulation via hera-sim-vis.py"""
-    pass
-
-
-@run_sim.command("h4c")
-@click.option(
-    "-fr",
-    "--freq-range",
-    nargs=2,
-    default=(0, len(H4C_FREQS)),
-    show_default=True,
-    metavar="START STOP",
-    type=click.IntRange(0, len(H4C_FREQS)),
-    help="Frequency channel range (Pythonic)",
-)
-@click.option(
-    "-fch",
-    "--freqs",
-    multiple=True,
-    default=None,
-    type=click.IntRange(0, len(H4C_FREQS)),
-    metavar="FREQ_CHAN",
-    help="Frequency channel, allow multiple, add to --freq-range",
-)
-@click.option(
-    "-sm",
-    "--sky_model",
-    default="ptsrc",
-    show_default=True,
-    type=click.Choice(["ptsrc", "diffuse_nside256", "eor"], case_sensitive=True),
-    help="Sky model to simulate",
-)
-@click.option(
-    "--chunks",
-    default=3,
-    show_default=True,
-    help="Split the simulation into a number of time chunks",
-)
-@click.option("--gpu/--cpu", default=False, show_default=True, help="Use gpu or cpu")
-@click.option(
-    "--hpc-config",
-    type=click.Path(exists=True, resolve_path=True),
-    help="HPC config YAML file for creating an SBATCH script "
-    "to run on a cluster; run locally if not provided",
-)
-@click.option(
-    "-so",
-    "--slurm-override",
-    nargs=2,
-    multiple=True,
-    metavar="FLAG VALUE",
-    help="Override slurm options in the hpc config (excluding job-name and output), "
-    "allow multiple",
-)
-@click.option(
-    "--skip-existing/--rerun-existing",
-    default=True,
-    show_default=True,
-    help="Skip or rerun if the simulation output already exists",
-)
-@click.option(
-    "--make-missing-obsparam/--skip-missing-obsparam",
-    default=True,
-    show_default=True,
-    help="Make the obsparam or skip running the simulation if the obsparam is missing",
-)
-@click.option(
-    "--force-remake-obsparams",
-    is_flag=True,
-    help="If set, remake all obsparams before running the simulations",
-)
-@click.option(
-    "--log-level",
-    default="WARNING",
-    type=click.Choice(["INFO", "WARNING", "ERROR", "DEBUG"], case_sensitive=True),
-    show_default=True,
-    help="Verbosity level, also pass the flag to hera-sim-vis.py",
-)
-@click.option("-d", "--dry-run", is_flag=True, help="Pass the flag to hera-sim-vis.py")
-def h4c(
+def run_h4c_sim(
     freq_range,
     freqs,
     sky_model,
@@ -141,11 +60,6 @@ def h4c(
     log_level,
     dry_run,
 ):
-    """Run H4C validation simulations.
-
-    Use the default parameters, configuration files, and directories for H4C sims
-    (see make_obsparams.py).
-    """
     logging.basicConfig(
         format="%(levelname)s:%(message)s", level=getattr(logging, log_level)
     )
@@ -221,8 +135,127 @@ def h4c(
                         subprocess.call(cmd.split()) if not dry_run else None
 
 
-@run_sim.command("custom")
-def custom(log_level):
+"""===CLI==="""
+
+
+@click.group(context_settings=CONTEXT_SETTINGS)
+def cli():
+    """Make job scripts and run visibility simulations via hera-sim-vis.py"""
+    pass
+
+
+@cli.command("h4c")
+@click.option(
+    "-fr",
+    "--freq-range",
+    nargs=2,
+    default=(0, len(H4C_FREQS)),
+    show_default=True,
+    metavar="START STOP",
+    type=click.IntRange(0, len(H4C_FREQS)),
+    help="Frequency channel range (Pythonic)",
+)
+@click.option(
+    "-fch",
+    "--freqs",
+    multiple=True,
+    default=None,
+    type=click.IntRange(0, len(H4C_FREQS)),
+    metavar="FREQ_CHAN",
+    help="Frequency channel, allow multiple, add to --freq-range",
+)
+@click.option(
+    "-sm",
+    "--sky_model",
+    default="ptsrc",
+    show_default=True,
+    type=click.Choice(["ptsrc", "diffuse_nside256", "eor"], case_sensitive=True),
+    help="Sky model to simulate",
+)
+@click.option(
+    "--chunks",
+    default=3,
+    show_default=True,
+    help="Split the simulation into a number of time chunks",
+)
+@click.option("--gpu/--cpu", default=False, show_default=True, help="Use gpu or cpu")
+@click.option(
+    "--hpc-config",
+    type=click.Path(exists=True, resolve_path=True),
+    help="HPC config YAML file for creating an SBATCH script "
+    "to run on a cluster; run locally if not provided",
+)
+@click.option(
+    "-so",
+    "--slurm-override",
+    nargs=2,
+    multiple=True,
+    metavar="FLAG VALUE",
+    help="Override slurm options in the hpc config (excluding job-name and output), "
+    "allow multiple",
+)
+@click.option(
+    "--skip-existing/--rerun-existing",
+    default=True,
+    show_default=True,
+    help="Skip or rerun if the simulation output already exists",
+)
+@click.option(
+    "--make-missing-obsparam/--skip-missing-obsparam",
+    default=True,
+    show_default=True,
+    help="Make the obsparam or skip running the simulation if the obsparam is missing",
+)
+@click.option(
+    "--force-remake-obsparams",
+    is_flag=True,
+    help="If set, remake all obsparams before running the simulations",
+)
+@click.option(
+    "--log-level",
+    default="WARNING",
+    type=click.Choice(["INFO", "WARNING", "ERROR", "DEBUG"], case_sensitive=True),
+    show_default=True,
+    help="Verbosity level, also pass the flag to hera-sim-vis.py",
+)
+@click.option("-d", "--dry-run", is_flag=True, help="Pass the flag to hera-sim-vis.py")
+def h4c_cli(
+    freq_range,
+    freqs,
+    sky_model,
+    chunks,
+    gpu,
+    hpc_config,
+    slurm_override,
+    skip_existing,
+    make_missing_obsparam,
+    force_remake_obsparams,
+    log_level,
+    dry_run,
+):
+    """Run H4C validation simulations.
+
+    Use the default parameters, configuration files, and directories for H4C sims
+    (see make_obsparams.py).
+    """
+    run_h4c_sim(
+        freq_range,
+        freqs,
+        sky_model,
+        chunks,
+        gpu,
+        hpc_config,
+        slurm_override,
+        skip_existing,
+        make_missing_obsparam,
+        force_remake_obsparams,
+        log_level,
+        dry_run,
+    )
+
+
+@cli.command("custom")
+def custom_cli():
     """Run custom simulations (not yet implemented).
 
     All configs to be provided.
@@ -231,4 +264,4 @@ def custom(log_level):
 
 
 if __name__ == "__main__":
-    run_sim()
+    cli()
