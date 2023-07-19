@@ -122,12 +122,16 @@ def run_h4c_sim(
                             sky_model=sky_model, fch=fch, ch=ch
                         )
                         # Write job script and submit
-                        # Maybe we should save each job script individually
-                        with open("_sim.sbatch", "w") as fl:
+                        sbatch_dir = REPODIR / "batch_scripts"
+                        sbatch_dir.mkdir(parents=True, exist_ok=True)
+                        sbatch_file = (
+                            sbatch_dir / f"{sky_model}_fch{fch:04d}_chunk{ch}.sbatch"
+                        )
+                        with open(sbatch_file, "w") as fl:
                             fl.write(job_script)
 
                         subprocess.call(
-                            "sbatch _sim.sbatch".split()
+                            f"sbatch {sbatch_file}".split()
                         ) if not dry_run else None
                         logger.info(f"\n===Job Script===\n{job_script}\n===END===\n")
                     else:
