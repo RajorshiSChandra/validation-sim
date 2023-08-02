@@ -21,17 +21,15 @@ integration chunk using the full band.
 import argparse
 import os
 import logging
-from hera_cal import io
 from collections import Counter
 
 import h5py
 import numpy as np
 import psutil
 from pyuvdata.uvdata.uvh5 import FastUVH5Meta
-from pyuvdata import utils as uvutils
 from pathlib import Path
 from hera_cal._cli_tools import parse_args, run_with_profiling
-from multiprocessing import shared_memory, Pool, cpu_count, set_start_method
+from multiprocessing import shared_memory, Pool, cpu_count
 from functools import partial
 
 logger = logging.getLogger("rechunk")
@@ -72,7 +70,8 @@ def find_all_files(
             if len(fllist) != most_common_nchunks:
                 logger.warning(
                     "Number of files for different channels is not the same. "
-                    f"Got {len(fllist)} for channel {ch} and {len(all_files[channels[0]])} for channel {channels[0]}"
+                    f"Got {len(fllist)} for channel {ch} and "
+                    f"{len(all_files[channels[0]])} for channel {channels[0]}"
                 )
 
     for nc, count in nchunks_counter.items():
@@ -83,7 +82,8 @@ def find_all_files(
 
     if not fl0.blts_are_rectangular:
         raise ValueError(
-            "Your first file is not rectangular. This script only works for rectangular files..."
+            "Your first file is not rectangular. "
+            "This script only works for rectangular files..."
         )
 
     for ch in channels:
@@ -302,7 +302,8 @@ def chunk_files(
         f"Going to use {nfreq_chunks} frequency chunks of {nfreqs} frequencies each."
     )
     logger.info(
-        f"This is estimated to use {mem_per_freq*nfreqs/1024**2:.2f} MB of memory (of the {mem_left/1024**2} MB left)."
+        f"This is estimated to use {mem_per_freq*nfreqs/1024**2:.2f} MB "
+        f"of memory (of the {mem_left/1024**2} MB left)."
     )
     logger.info("")
 
@@ -452,7 +453,8 @@ if __name__ == "__main__":
         "--r-prototype",
         type=str,
         default="",
-        help="glob-parsable prototype of files to read. Can include a {channel} format string which will be replaced by the channel internally.",
+        help="glob-parsable prototype of files to read. Can include a {channel} "
+        "format string which will be replaced by the channel internally.",
     )
     parser.add_argument(
         "--channels",
@@ -504,7 +506,8 @@ if __name__ == "__main__":
         "--max-freq-chunk-size",
         type=int,
         default=1e6,
-        help="Maximum number of frequencies to read at once. Setting --max-mem will try autodetect optimal setting.",
+        help="Maximum number of frequencies to read at once. Setting --max-mem "
+        "will try autodetect optimal setting.",
     )
     args = parse_args(parser)
 
