@@ -93,7 +93,9 @@ def find_all_files(
                 blts_are_rectangular=fl0.blts_are_rectangular
                 if assume_blt_layout
                 else None,
-                time_axis_faster_than_bls=fl0.time_axis_faster_than_bls if assume_blt_layout else None,
+                time_axis_faster_than_bls=fl0.time_axis_faster_than_bls
+                if assume_blt_layout
+                else None,
             )
             for fl in all_files[ch]
         ]
@@ -305,11 +307,23 @@ def chunk_files(
     logger.info("")
 
     MAXSHAPE = (uvd.Nblts, nfreqs, uvd.Npols)
-    shm = shared_memory.SharedMemory(
-        create=True,
-        size=np.dtype(np.complex64).itemsize * np.prod(MAXSHAPE),
-        name="FULLDSET",
-    )
+
+    try:
+        shm = shared_memory.SharedMemory(
+            create=True,
+            size=np.dtype(np.complex64).itemsize * np.prod(MAXSHAPE),
+            name="FULLDSET",
+        )
+    except FileExistsError:
+        # Shared memory "FULLDSET" was not unlink properly. We must close it.
+        shm = shared_memory.SharedMemory(name="FULLDSET", create=False)
+        shm.unlink()
+        # Now re-initialize
+        shm = shared_memory.SharedMemory(
+            create=True,
+            size=np.dtype(np.complex64).itemsize * np.prod(MAXSHAPE),
+            name="FULLDSET",
+        )
 
     for outfile_index, chunk_slices in enumerate(chunk_slices):
         logger.info(f"Creating data for file {outfile_index + 1}")
