@@ -351,42 +351,50 @@ def chunk_files(
         fname = prototype.format(lst=uvd.lst_array[0])
         pth = save_dir / fname
 
-        # This just writes the header.
-        logger.info("Initializing UVH5 file...")
-        uvd.initialize_uvh5_file(pth, clobber=True)
+        # Check if file already exists and only proceed if clobber is True
+        if not pth.exists() or args.clobber:
+            # This just writes the header.
+            logger.info("Initializing UVH5 file...")
+            uvd.initialize_uvh5_file(pth, clobber=True)
 
-        pool = Pool(nthreads or cpu_count())
-        raw_file_paths = {ch: [f.path for f in raw_files[ch]] for ch in channels}
+            pool = Pool(nthreads or cpu_count())
+            raw_file_paths = {ch: [f.path for f in raw_files[ch]] for ch in channels}
 
-        for freq_chunk in range(nfreq_chunks):
-            logger.info(f"Obtaining frequency chunk {freq_chunk+1}/{nfreq_chunks}...")
-            freq_slice = slice(
-                freq_chunk * nfreqs, min((freq_chunk + 1) * nfreqs, uvd.Nfreqs)
+            for freq_chunk in range(nfreq_chunks):
+                logger.info(f"Obtaining frequency chunk {freq_chunk+1}/{nfreq_chunks}...")
+                freq_slice = slice(
+                    freq_chunk * nfreqs, min((freq_chunk + 1) * nfreqs, uvd.Nfreqs)
+                )
+                this_nfreq = freq_slice.stop - freq_slice.start
+                SHAPE = (uvd.Nblts, this_nfreq, uvd.Npols)
+                full_dset = np.ndarray(SHAPE, dtype=np.complex64, buffer=shm.buf)
+
+                # Now we need to actually write the data.
+                pool.map(
+                    partial(
+                        write_freq_chunk,
+                        ntimes=uvd.Ntimes,
+                        chunk_slices=chunk_slices,
+                        nbls=uvd.Nbls,
+                        raw_files=raw_file_paths,
+                        time_first=time_first,
+                        shape=SHAPE,
+                        channels=channels,
+                        start_index=freq_slice.start,
+                    ),
+                    range(freq_slice.start, freq_slice.stop),
+                )
+
+                # Now write the data.
+                with h5py.File(pth, "a") as fl:
+                    fl["/Data/visdata"][:, freq_slice] = full_dset
+                del full_dset
+        else:
+            logger.info(
+                f"File {outfile_index + 1} already exists, skipping write out. "
+                "Set --clobber to overwrite."
             )
-            this_nfreq = freq_slice.stop - freq_slice.start
-            SHAPE = (uvd.Nblts, this_nfreq, uvd.Npols)
-            full_dset = np.ndarray(SHAPE, dtype=np.complex64, buffer=shm.buf)
 
-            # Now we need to actually write the data.
-            pool.map(
-                partial(
-                    write_freq_chunk,
-                    ntimes=uvd.Ntimes,
-                    chunk_slices=chunk_slices,
-                    nbls=uvd.Nbls,
-                    raw_files=raw_file_paths,
-                    time_first=time_first,
-                    shape=SHAPE,
-                    channels=channels,
-                    start_index=freq_slice.start,
-                ),
-                range(freq_slice.start, freq_slice.stop),
-            )
-
-            # Now write the data.
-            with h5py.File(pth, "a") as fl:
-                fl["/Data/visdata"][:, freq_slice] = full_dset
-            del full_dset
     shm.close()
     shm.unlink()
 
@@ -479,7 +487,8 @@ if __name__ == "__main__":
         "--clobber",
         default=False,
         action="store_true",
-        help="Overwrite existing files.",
+        help="If set, rechunk and overwrite existing files. "
+        "Otherwise, skip the chunk if it already exists",
     )
     parser.add_argument(
         "--ignore-missing-channels",
