@@ -79,7 +79,7 @@ def run_h4c_sim(
     program = _get_sbatch_program(hpc_config, slurm_override) if hpc_config else ""
 
     # Option for hera-sim-vis.py. Let's just keep this fixed.
-    sim_options = f"--normalize_beams --fix_autos --log-level {log_level}"
+    sim_options = f"--normalize_beams --fix_autos --compress --log-level {log_level}"
     sim_options += " --dry-run" if dry_run else ""
 
     freq_chans = np.arange(*freq_range)
