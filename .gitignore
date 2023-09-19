@@ -17,3 +17,5 @@ profiling/*
 *.pdf
 *.psc
 test-rechunk-script/*
+*.out
+*.sbatch
