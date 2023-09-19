@@ -82,6 +82,7 @@ def make_gleam_like_model():
     # Names are required for point sources
     names = [f"gl{i:06d}" for i in range(nsources)]
 
+    # TODO: Change to SkyCoord with frame keyword required by pyradiosky=>0.3.0
     ra = Longitude(lon * units.rad)
     dec = Latitude(((np.pi / 2) - colat) * units.rad)
 
@@ -124,6 +125,7 @@ def make_ateam_model():
 
     # RA/Dec.
     # For Fornax A, represent it as a single source using its host galaxy position
+    # TODO: Change to SkyCoord with frame keyword required by pyradiosky=>0.3.0
     ra = Longitude(
         [
             "22h14m16s",
@@ -297,7 +299,7 @@ def make_healpix_type_sky_model(
     npix = hp.nside2npix(nside)
 
     stokes = np.zeros((4, 1, npix)) * hmap.unit
-    stokes[0, :, :] = hmap.value
+    stokes[0, :, :] = hmap
 
     # SkyModel parameters.
     params = {
