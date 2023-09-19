@@ -6,6 +6,8 @@ sky_models/*.fits
 sky_models/gleam_like/*
 sky_models/ptsrc/*
 sky_models/diffuse*/
+sky_models/confusion*/
+sky_models/gsm*/
 sky_models/eor/
 **/.ipynb_checkpoints
 **/__pycache__
@@ -13,4 +15,7 @@ profiling/*
 *.fits
 *.png
 *.pdf
+*.psc
 test-rechunk-script/*
+*.out
+*.sbatch

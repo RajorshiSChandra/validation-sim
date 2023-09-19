@@ -6,7 +6,7 @@ import astropy.units as u
 from pyradiosky import SkyModel
 import utils
 
-FREQ_ARRAY = utils.freqs * u.Hz
+FREQ_ARRAY = utils.h4c_freqs * u.Hz
 
 ptsrc_dir = utils.SKYDIR / 'ptsrc'
 
@@ -207,7 +207,7 @@ def concat_models(i):
     ptsrc = gleam_like_f.concat(ateam_f, inplace=False)
     # ptsrc.concat(ateam_f, inplace=True)
 
-    utils.write(ptsrc, 'ptsrc', i)
+    utils.write_sky(ptsrc, 'ptsrc', i)
 
 if __name__ == "__main__":
     with Pool() as p:

@@ -11,7 +11,7 @@ from pygdsm import GlobalSkyModel
 import utils
 
 # H4C frequencies
-FREQ_ARRAY = utils.freqs
+FREQ_ARRAY = utils.h4c_freqs
 
 
 def make_gsm_map(f, smooth=True, nside=128):
@@ -70,7 +70,7 @@ def make_sky_model(fch):
     # Transform coordinates of the GSM pixels from Galactic to ICRS.
     gsm_model.transform_to("icrs")
 
-    utils.write(gsm_model, f"gsm_nside{out_nside}", fch)
+    utils.write_sky(gsm_model, f"gsm_nside{out_nside}", fch)
 
 
 if __name__ == "__main__":
