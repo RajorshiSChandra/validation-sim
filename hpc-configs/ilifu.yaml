@@ -1,0 +1,34 @@
+# Template for HPC config for run_sim.py
+# None-number values should be quoted 
+
+paths:
+  beams: 
+
+conda:
+  # Shorten path will be resolved
+  conda_path: "~/miniconda3"
+  environment_name: "h4c"
+
+module:
+  # List environment modules to load
+  - "openmpi"
+  - "cuda"
+
+slurm:
+  # SLURM SBATCH options, listed as --flag: value
+  # Flags not shown here should work
+
+  cpu:
+    partition: "GPU"  # Name of partition
+    nodes: 1  # Number of nodes
+    mem: "24GB"  # Memory with unit
+    ntasks: 1  # Number of tasks
+    time: "0-00:60:00"  # slurm-aware time string format
+  gpu:
+    partition: "GPU"  # Name of partition
+    nodes: 1  # Number of nodes
+    mem: "24GB"  # Memory with unit
+    ntasks: 1  # Number of tasks
+    time: "0-00:60:00"  # slurm-aware time string format
+    gres: "gpu:1"  # Some cluster do not support --gpus flag
+    
