@@ -19,3 +19,5 @@ profiling/*
 test-rechunk-script/*
 *.out
 *.sbatch
+compression-cache/*
+tmp/

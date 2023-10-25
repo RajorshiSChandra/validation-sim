@@ -256,9 +256,8 @@ def chunk_files(
     lsts = np.roll(lsts, -time_index) % (2 * np.pi)
 
     # Make a prototype UVData object for the chunked data.
-    uvd = (
-        meta.to_uvdata()
-    )  # this has too many times, and only one frequency. We update that manually.
+    # this has too many times, and only one frequency. We update that manually.
+    uvd = meta.to_uvdata()
     uvd.use_future_array_shapes()
     uvd.freq_array = freqs
     uvd.Nfreqs = len(freqs)
@@ -267,6 +266,8 @@ def chunk_files(
     # TODO: Support flexible spectral window in the future
     uvd.flex_spw = False
     uvd.flex_spw_id_array = np.zeros_like(freqs, dtype=np.integer)
+
+    DTYPE = uvd.data_array.dtype
 
     if time_first:
         phase_center_ra = uvd.phase_center_app_ra[: meta.Ntimes]
@@ -312,7 +313,7 @@ def chunk_files(
     try:
         shm = shared_memory.SharedMemory(
             create=True,
-            size=np.dtype(np.complex64).itemsize * np.prod(MAXSHAPE),
+            size=DTYPE.itemsize * np.prod(MAXSHAPE),
             name="FULLDSET",
         )
     except FileExistsError:
@@ -322,7 +323,7 @@ def chunk_files(
         # Now re-initialize
         shm = shared_memory.SharedMemory(
             create=True,
-            size=np.dtype(np.complex64).itemsize * np.prod(MAXSHAPE),
+            size=DTYPE.itemsize * np.prod(MAXSHAPE),
             name="FULLDSET",
         )
 
@@ -367,7 +368,7 @@ def chunk_files(
                 )
                 this_nfreq = freq_slice.stop - freq_slice.start
                 SHAPE = (uvd.Nblts, this_nfreq, uvd.Npols)
-                full_dset = np.ndarray(SHAPE, dtype=np.complex64, buffer=shm.buf)
+                full_dset = np.ndarray(SHAPE, dtype=DTYPE, buffer=shm.buf)
 
                 # Now we need to actually write the data.
                 pool.map(
@@ -381,6 +382,7 @@ def chunk_files(
                         shape=SHAPE,
                         channels=channels,
                         start_index=freq_slice.start,
+                        DTYPE=DTYPE,
                     ),
                     range(freq_slice.start, freq_slice.stop),
                 )
@@ -409,13 +411,14 @@ def write_freq_chunk(
     shape,
     channels,
     start_index,
+    DTYPE,
 ):
     ntimes_left = ntimes
     nblts_so_far = 0
     ch = channels[ich]
 
     shm = shared_memory.SharedMemory(name="FULLDSET")
-    full_dset = np.ndarray(shape, dtype=np.complex64, buffer=shm.buf)
+    full_dset = np.ndarray(shape, dtype=DTYPE, buffer=shm.buf)
 
     for flidx, slc in chunk_slices:
         if ntimes_left == 0:

@@ -13,7 +13,10 @@ from astropy import units
 from astropy.units import Quantity
 from pyradiosky import SkyModel
 from pygdsm import GlobalSkyModel
-
+from scipy import integrate
+from scipy.interpolate import InterpolatedUnivariateSpline
+from functools import cached_property
+from scipy.stats import gaussian_kde
 import utils
 
 CONTEXT_SETTINGS = dict(help_option_names=["-h", "--help"], max_content_width=100)
@@ -21,6 +24,46 @@ CONTEXT_SETTINGS = dict(help_option_names=["-h", "--help"], max_content_width=10
 H4C_FREQS = utils.H4C_FREQS * units.Hz
 GL_MODEL_FILE = utils.SKYDIR / "gleam_like.skyh5"
 ATEAM_MODEL_FILE = utils.SKYDIR / "ateam.skyh5"
+
+
+def randsphere(n, theta_range = (0,np.pi), phi_range = (0,2*np.pi)):
+    """
+    Generate random angular theta, phi points on the sphere
+
+    Parameters
+    ----------
+    n: integer
+        The number of randoms to generate
+
+    Returns
+    -------
+    theta,phi: tuple of arrays
+    """
+    phi = np.random.random(n)
+    phi = phi*(phi_range[1]-phi_range[0]) + phi_range[0]
+
+    cos_theta_min=np.cos(theta_range[0])
+    cos_theta_max=np.cos(theta_range[1])
+
+    v = np.random.random(n)
+    v *= (cos_theta_max-cos_theta_min)
+    v += cos_theta_min
+
+    theta = np.arccos(v)
+
+    return theta, phi
+
+def dnds_franzen(s, a=None, norm=False):
+    if a is None:
+        a = [3.52, 0.307, -0.388, -0.0404, 0.0351, 0.00600]  # from franzen
+    out = 10**(sum(np.log10(s)**i * aa for i, aa in enumerate(a)))
+    if norm:
+        return out
+    else:
+        return s**-2.5 * out
+    
+
+
 
 
 """===LOGIC CODE==="""
@@ -66,18 +109,150 @@ ATEAM_MODEL_FILE = utils.SKYDIR / "ateam.skyh5"
 #         clobber=True
 #     )
 
+class FranzenSourceCounts:
+    """Class for dealing with source counts from Franzen et al. (2019)."""
+    def __init__(self, smin, smax, base_svec=None, base_cdf=None):
+        self.smin = smin
+        self.smax = smax
 
-def make_gleam_like_model():
-    data_file = f"{utils.SKYDIR}/gleam_like/gleam_like_brighter.npz"
+        if base_svec is None:
+            self._base_svec = np.logspace(4, -10, 1000)
+        else:
+            self._base_svec = base_svec
+        
+        if base_cdf is None:
+            self._base_cdf = np.zeros(len(self._base_svec))
+            for i, x in enumerate(s[1:], start=1):
+                self._base_cdf[i] = integrate.quad(dnds_franzen, x, self._svec[i-1])[0] + self._base_cdf[i-1]
+        else:
+            self._base_cdf = base_cdf
 
-    with np.load(data_file) as data:
-        flux_ref = data["flux_density"]
-        colat = data["theta"]
-        lon = data["phi"]
-        spectral_index = data["spec_index"]
+        self._mask = (self._base_svec > self.smin) & (self._base_svec < self.smax)
+        self._cdf = self._base_cdf.copy()
+        self._cdf = self._cdf[self._mask]
+        self._cdf -= self._cdf.min()
 
-    # Put synthetic sources into a SkyModel
+    def with_bounds(self, smin: float | None = None, smax: float | None = None) -> 'FranzenSourceCounts':
+        if smin is None:
+            smin = self.smin
+        if smax is None:
+            smax = self.smax
+
+        return FranzenSourceCounts(smin, smax, self._base_svec, self._base_cdf)
+    
+    def with_nsources_per_pixel(self, nsources: int, nside: int) -> 'FranzenSourceCounts':
+        pixarea = hp.nside2pixarea(nside)
+        smin_idx = np.argwhere(self.cumulative_source_density * pixarea > nsources)[0][0]
+        return FranzenSourceCounts(
+            smin=self.smin[smin_idx], smax=self.smax, 
+            base_cdf=self._base_cdf, base_svec=self._base_svec
+        )
+    
+    @cached_property
+    def cumulative_source_density(self):
+        return self._cdf
+
+    @cached_property
+    def normalized_cdfvec(self):
+        return self.cumulative_source_density / self.nbar
+    
+    @cached_property
+    def nbar(self) -> float:
+        """The mean density of galaxies (per steradian) within the given flux range."""
+        return self.cumulative_source_density.max()
+    
+    def sample_source_count(self, solid_angle: float) -> int:
+        return np.random.poisson(solid_angle * self.nbar)
+
+    @cached_property
+    def invcdf(self):
+        return InterpolatedUnivariateSpline(self.normalized_cdfvec, self._base_svec[self._mask])
+    
+    def sample_fluxes(self, solid_angle: float) -> np.ndarray:
+        n = self.sample_source_count(solid_angle)
+        return self.invcdf(np.random.uniform(size=n))
+
+    def sample_pixel_flux(self, nside: int, n: int =1) -> np.ndarray:
+        solid_angle = hp.nside2pixarea(nside)
+        out = np.zeros(n)
+        for i in range(n):
+            out[i] = np.sum(self.sample_fluxes(solid_angle))
+        return out
+
+    def pixel_flux_distribution(self, nside: int, n: int=10000):
+        """Get a sample-able distribution of flux within pixels.
+        
+        This does a semi-brute-force calculation, finding the distribution by 
+        Monte-Carloing many pixels of total flux (drawing point sources in each 
+        pixel from the source count distribution). Using an analytic formula is not 
+        possible. Even using the mean and variance (which is analytically tractable)
+        is not useful since the distribution is highly non-Gaussian in general.
+        """
+        fluxes = self.sample_pixel_flux(nside, n=n)
+        kde = gaussian_kde(np.log10(fluxes))
+        return kde
+
+    
+franzen_base = FranzenSourceCounts(smin=1e-10, smax=1e4)
+
+
+def make_gleam_like_model(
+    max_flux_density: float = 100.0, 
+    seed: int = 42, 
+    mean_spectral_index: float = 0.8, 
+    sigma_spectral_index: float = 0.05,
+    nside: int = 256,
+) -> SkyModel:
+    """
+    Create a set of point sources that have the same statistical properties as GLEAM.
+
+    This creates a set of point sources with a flux distribution consistent with that
+    measured by Franzen et al. (2019) using GLEAM measurements. The brightest sources
+    can be omitted with the `max_flux_density` parameter, to allow for putting real
+    bright sources on top. 
+
+    The distribution of sources is assumed to be uniform on the sky, which is not 
+    hugely inconsistent with reality given that the bulk of sources are faint and 
+    therefore unlikely to be highly biased. 
+
+    The number of sources returned depends on the `nside` parameter, which sets the
+    assumed resolution of the telescope. We aim for one source per healpix pixel on 
+    average. If we had more sources, they would be "confused" and appear as a background
+    thermal-noise-like rumble in the diffuse map. 
+
+    Parameters
+    ------
+    max_flux_density: float, optional
+        The maximum flux density of the sources. The default is 100.0.
+    seed: int, optional
+        The random seed to use. The default is 42.
+    mean_spectral_index: float, optional
+        The mean spectral index of the sources. The default is 0.8.
+    sigma_spectral_index: float, optional
+        The standard deviation of the spectral index of the sources. The default is 0.05.
+    nside: int, optional
+        The healpix nside parameter to use, to choose the approximate number of
+        sources. Fainter sources are not simulated. The default is 256.
+
+    Returns
+    -------
+    gl_model
+        A SkyModel representing the GLEAM-like sources.
+
+    """
+    np.random.seed(seed)
+    source_counts = franzen_base.with_bounds(
+        smax=max_flux_density
+    ).with_nsources_per_pixel(
+        nsources=1, nside=nside
+    )
+    flux_ref = source_counts.sample_fluxes(solid_angle=4*np.pi)
     nsources = len(flux_ref)
+    colat, lon = randsphere(nsources)
+
+    spectral_index = np.random.normal(
+        loc=mean_spectral_index, scale=sigma_spectral_index, size=nsources
+    )
 
     # Names are required for point sources
     names = [f"gl{i:06d}" for i in range(nsources)]
@@ -103,11 +278,9 @@ def make_gleam_like_model():
         "history": "Load gleam-like sources\n",
     }
 
-    gl_model = SkyModel(**gl_model_params)
-    gl_model.write_skyh5(GL_MODEL_FILE, clobber=False)
-
-
-def make_ateam_model():
+    return SkyModel(**gl_model_params)
+    
+def make_ateam_model() -> SkyModel:
     """Make a SkyModel for sources peeled from GLEAM."""
     # The first 9 sources are peeled from GLEAM (Hurley-Walker+2017)
     names = [
@@ -194,16 +367,13 @@ def make_ateam_model():
         "reference_frequency": reference_frequency,
         "history": "Load sources brighter than 87 Jy at 154 MHz from GLEAM.\n",
     }
-    ateam_model = SkyModel(**ateam_model_params)
+    return SkyModel(**ateam_model_params)
 
-    ateam_model.write_skyh5(ATEAM_MODEL_FILE, clobber=False)
-
-
-def make_ptsrc_model(fch):
+def make_ptsrc_model(fch, **kw):
     # Load GLEAM-like and A-Team SkyModel objects, making them if they do not exist
     # in the default path
     if not GL_MODEL_FILE.exists():
-        make_gleam_like_model()
+        make_gleam_like_model(**kw)
     gleam_like = SkyModel.from_file(GL_MODEL_FILE)
     if not ATEAM_MODEL_FILE.exists():
         make_ateam_model()
@@ -228,31 +398,28 @@ def make_ptsrc_model(fch):
     utils.write_sky(ptsrc, "ptsrc", fch)
 
 
-def make_confusion_map(freq: Quantity, nside: int = 256) -> Quantity:
+def make_confusion_map(
+    freq: Quantity, 
+    nside: int = 256, 
+    smax=0.03, 
+    mean_spectral_index: float = 0.8, 
+    sigma_spectral_index: float = 0.05
+) -> Quantity:
     """Make a confusion map at a given frequency. Output NSIDE=128."""
+    
+    source_counts = franzen_base.with_bounds(smin=0, smax=smax)
+    kde = source_counts.pixel_flux_distribution(nside=nside, n=10000)
+
+    fluxes = 10**kde.resample(size=hp.nside2npix(nside))
     ref_freq = 154e6 * units.Hz
-
-    # Load source confusion data
-    data_file = f"{utils.SKYDIR}/gleam_like/gleam_like_fainter.npz"
-
-    with np.load(data_file) as data:
-        flux_ref = data["flux_density"]
-        colat = data["theta"]
-        lon = data["phi"]
-        spectral_index = data["spec_index"]
-
-    # Pixel indices of confusion sources
-    pixel_inds = hp.ang2pix(nside, colat, lon, nest=False)
-
-    # Power law interpolation to get source fluxes at the given frequency.
-    flux_f = flux_ref * (freq / ref_freq) ** spectral_index
-
-    # Initialize confusion map
-    confusion_map = np.zeros(hp.nside2npix(nside))
-
-    # Loop over pixel indices of the sources and add fluxes to the right pixels.
-    for i, p in enumerate(pixel_inds):
-        confusion_map[p] += flux_f[i]
+    
+    # The spectral indices of each pixel come from a distribution defined by 
+    # (nu / nu_ref)**-gamma, where gamma is normally distributed. According to
+    # https://stats.stackexchange.com/a/335990/81338 and ignoring the second-order
+    # terms, this has a mean of the original mean of gamma and variance proportional
+    # to the mean -- i.e. we can simply scale all the pixels down by the mean spectral
+    # index and we'll get the right mean and variance (to first order).
+    fluxes *= ((freq / ref_freq)**-mean_spectral_index)
 
     # Divde by pixel area to conver to Jy/sr
     confusion_map = confusion_map / hp.nside2pixarea(nside)
