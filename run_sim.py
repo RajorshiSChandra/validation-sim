@@ -85,8 +85,11 @@ def run_validation_sim(
     slurm_override = slurm_override + (
         ("job-name", "{sky_model}-fch{fch:04d}-chunk{ch}"),
         ("output", "logs/vis/{sky_model}/fch{fch:04d}-ch{ch:03d}_%J.out"),
-        ("time", f"0-00:{time_est}:00"),
     )
+
+    if 'time' not in [x[0] for x in slurm_override]:
+        slurm_override = slurm_override + (("time", f"0-00:{time_est}:00"),)
+        
     # Make the SBATCH script minus hera-sim-vis.py command
     program = _get_sbatch_program(gpu, slurm_override)
 

@@ -59,5 +59,5 @@ be run at once by using `run_sim.py`, but sometimes it is preferable to do it on
 * `rechunk-fast.py`: This performs cornerturns on the output of the `run_sim.py` 
   command, taking in the files with large number of times and a single frequency and 
   outputing files with smaller number of times and all frequencies, ready to be 
-  passed on to systematics simulation.
+  passed on to systematics simulation. Run this script using `run_rechunk.sh`.
 * `notebooks/`: a bunch of notebooks used for validating the outputs.

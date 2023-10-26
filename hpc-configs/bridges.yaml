@@ -17,7 +17,6 @@ module:
 slurm:
   # SLURM SBATCH options, listed as --flag: value
   # Flags not shown here should work
-
   cpu:
     partition: "RM"  # Name of partition
     nodes: 1  # Number of nodes
