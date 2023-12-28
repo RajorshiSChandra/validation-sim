@@ -32,9 +32,8 @@ def cli():
 @cli.command("runsim")
 @_cli.opts.add_opts
 def hera_cli(
-    layout,
-    ants,
-    n_time_chunks,
+    channels,
+    freq_range,
     **kwargs
 ):
     """Run HERA validation simulations.
@@ -42,54 +41,37 @@ def hera_cli(
     Use the default parameters, configuration files, and directories for HERA sims
     (see make_obsparams.py).
     """
-    if layout is not None and ants:
-        raise ValueError(f"Provide only layout or ants, got layout={layout}, ants={ants}")
-    if layout is None and ants is None:
-        raise ValueError("Either layout or ants must be provided")
-    if ants:
-        layout = list(ants)
+    print(channels, freq_range)
+    channels = _cli.parse_channels(channels, freq_range)
 
-    run_validation_sim(layout=layout, chunks=n_time_chunks, **kwargs)
+    run_validation_sim(channels=channels, **kwargs)
 
 
 @cli.command('make-obsparams')
 @_cli.opts.layout
 @_cli.opts.ants
+@_cli.opts.channels
 @_cli.opts.freq_range
-@_cli.opts.freqs
 @_cli.opts.sky_model
 @_cli.opts.n_time_chunks
-def make_obsparams(layout, ants, freq_range, freqs, sky_model, n_time_chunks):
+def make_obsparams(layout, freq_range, channels, sky_model, n_time_chunks):
     """Make obsparams for H4C simulations given a sky model and frequencies."""
-    if layout is not None and ants is not None:
-        raise ValueError("Provide only layout or ants")
-    if layout is None and ants is None:
-        raise ValueError("Either layout or ants must be provided")
-    if ants is not None:
-        layout = list(ants)
+    channels = _cli.parse_channels(channels, freq_range)
 
     make_hera_obsparam(
-        layout=layout, 
-        freq_range=freq_range, 
-        freqs=freqs, 
+        layout=layout,
+        channels=channels,
         sky_model=sky_model, 
         chunks=n_time_chunks
     )
 
 option_nside = click.option("--nside", default=256, show_default=True)
 
-def _parse_freqs(freq_range, freqs):
-    freq_chans = np.arange(*freq_range)
-    if freqs:
-        extra_freqs = freqs[np.isin(freqs, freq_chans, invert=True)]
-        freq_chans = np.append(freq_chans, extra_freqs)
-    return freq_chans
-
 
 @cli.command("sky-model")
 @click.argument("sky_model", type=click.Choice(['gsm', 'diffuse', 'ptsrc', 'eor']))
+@_cli.opts.channels
 @_cli.opts.freq_range
-@_cli.opts.freqs
 @_cli.opts.slurm_override
 @_cli.opts.skip_existing
 @_cli.opts.dry_run
@@ -97,7 +79,7 @@ def _parse_freqs(freq_range, freqs):
 @click.option("--local/--slurm", default=False)
 @click.option("--split-freqs/--no-split-freqs", default=False)
 def sky_model(
-    sky_model, freq_range, freqs, nside, local, slurm_override, split_freqs,
+    sky_model, freq_range, channels, nside, local, slurm_override, split_freqs,
     skip_existing, dry_run
 ):
     """Make SkyModel at given frequencies.
@@ -105,8 +87,8 @@ def sky_model(
     Frequencies are based on H4C data.
     Outputs are written to the default directories, i.e. "./sky_models/<type>".
     """
+    channels = _cli.parse_channels(channels, freq_range)
     if local:
-        channels = _parse_freqs(freq_range, freqs)
         if sky_model == 'gsm':
             sm.make_gsm_model(channels, nside)
         elif sky_model == 'diffuse':
@@ -117,7 +99,7 @@ def sky_model(
             raise NotImplementedError("eor sky model not supported yet")
     else:
         sm.run_make_sky_model(
-            sky_model, freq_range, freqs, nside, slurm_override=slurm_override,
+            sky_model, channels, nside, slurm_override=slurm_override,
             skip_existing=skip_existing, dry_run=dry_run, split_freqs=split_freqs
         )
 

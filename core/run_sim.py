@@ -20,10 +20,9 @@ def calculate_expected_time(chunks: int) -> int:
 
 def run_validation_sim(
     layout: str,
-    freq_range: tuple[int, int],
-    freqs: Sequence[int],
+    channels: list[int],
     sky_model: str,
-    chunks: int,
+    n_time_chunks: int,
     gpu: bool,
     slurm_override,
     skip_existing: bool,
@@ -35,16 +34,16 @@ def run_validation_sim(
     do_time_chunks: list[int] | None = None,
     profile: bool = False,
 ):
-    out_dir = utils.OUTDIR / utils.VIS_DIRFMT.format(sky_model=sky_model, chunks=chunks)
+    out_dir = utils.OUTDIR / utils.VIS_DIRFMT.format(sky_model=sky_model, chunks=n_time_chunks)
     obsp_dir = utils.OBSPDIR / utils.OBSPARAM_DIRFMT.format(
-        sky_model=sky_model, chunks=chunks
+        sky_model=sky_model, chunks=n_time_chunks
     )
     simulator_config = utils.REPODIR / "visgpu.yaml" if gpu else utils.REPODIR / "viscpu.yaml"
 
     if not do_time_chunks:
-        do_time_chunks = list(range(chunks))
+        do_time_chunks = list(range(n_time_chunks))
 
-    time_est = calculate_expected_time(chunks)
+    time_est = calculate_expected_time(n_time_chunks)
 
     # We want to override the job-name to be <sky_model>-<fch>-<ch>, but the last two
     # variables have to be accessed in the loop, so we will be instead override it to
@@ -63,25 +62,20 @@ def run_validation_sim(
     # Make the SBATCH script minus hera-sim-vis.py command
     program = _get_sbatch_program(gpu, slurm_override)
 
-    freq_chans = np.arange(*freq_range)
-    if freqs:
-        extra_freqs = freqs[np.isin(freqs, freq_chans, invert=True)]
-        freq_chans = np.append(freq_chans, extra_freqs)
-    logger.info(f"Frequency channels to run: {freq_chans}")
+    logger.info(f"Frequency channels to run: {channels}")
 
     layout_file = make_hera_obsparam(
         layout=layout, 
-        freq_range=freq_range, 
-        freqs=freqs, 
+        channels=channels,
         sky_model=sky_model, 
-        chunks=chunks, 
+        chunks=n_time_chunks, 
         freq_interp_kind = freq_interp_kind, 
         spline_interp_order = spline_interp_order, 
         force=force_remake_obsparams,
         do_chunks=do_time_chunks
     )
     compress_cache = utils.COMPRESSDIR / utils.COMPRESS_FMT.format(
-        chunks=chunks, layout_file=layout_file.stem
+        chunks=n_time_chunks, layout_file=layout_file.stem
     )
     # Option for hera-sim-vis.py. Let's just keep this fixed.
     sim_options = (
@@ -89,7 +83,7 @@ def run_validation_sim(
         f"--log-level {log_level}"
     )
 
-    for fch in freq_chans:
+    for fch in channels:
         for ch in do_time_chunks:
             logger.info(f"Working on frequency channel {fch} chunk {ch}")
             
@@ -106,7 +100,7 @@ def run_validation_sim(
             trace = " "
             profilestr=""
             if profile:
-                proflabel = f"{sky_model}-gpu{gpu}-nt{chunks}-{layout}-mv{matvis.__version__}-hs{hera_sim.__version__}"
+                proflabel = f"{sky_model}-gpu{gpu}-nt{n_time_chunks}-{layout}-mv{matvis.__version__}-hs{hera_sim.__version__}"
                 if gpu:
                     trace = (
                         "nsys profile -w true -t cuda,cublas -s cpu -f true -x true "

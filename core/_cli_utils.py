@@ -1,38 +1,85 @@
 import logging
 import click
 from . import utils
-
+import numpy as np
 
 logger = logging.getLogger(__name__)
+
+
+class IntRangeBuilder(click.IntRange):
+    name = "integer range"
+
+    def convert(self, value, param, ctx) -> list[int]:
+        if '~' not in value:
+            return [super().convert(value, param, ctx)]
+        
+        elif isinstance(value, str):
+            try:
+                low, high = value.split("~")
+            except ValueError:
+                self.fail(f"{value!r} is not in the form 'low~high'", param, ctx)
+
+            low = super().convert(low, param, ctx)
+            high = super().convert(high, param, ctx)
+
+            return list(range(low, high))
+            
+def combine_int_ranges(ctx, param, value) -> list[int]:
+    # value should be a list of lists of ints
+    return sorted(set(sum(value, start=[])))
+    
+def check_ants(ctx, param, value):
+    ants = combine_int_ranges(ctx, param, value)
+    if not ants and not ctx.params['layout']:
+        raise click.BadParameter("You must provide --layout or --ants")
+    if ants and ctx.params['layout']:
+        raise click.BadParameter("Do not provide both --layout and --ants")
+    
+    if ants:
+        ctx.params['layout'] = list(ants)
+
+def parse_channels(channels: list[int], freq_range: tuple[float, float]) -> list[int]:
+    freqs = utils.FREQS_DICT['H4C'] / 1e6
+    if channels:
+        freqs = freqs[channels]
+
+    if freq_range:
+        mask = np.logical_and(freqs>=freq_range[0], freqs < freq_range[1])
+        channels = [c for c, m in zip(channels, mask) if m]
+
+    return channels
 
 class opts:
     layout = click.option(
         "--layout", default=None, type=click.Choice(list(utils.ANTS_DICT.keys())),
-        help="A pre-defined HERA layout to use"
+        help="A pre-defined HERA layout to use",
     )
     ants = click.option(
-        "-a", "--ants", type=click.IntRange(0, 350), default=None, multiple=True,
-        help="ants to use as a subset of the full HERA 350"
+        "-a", "--ants", type=IntRangeBuilder(0, 350, max_open=True), 
+        callback=check_ants,
+        default=None, multiple=True,
+        help="ants to use as a subset of the full HERA 350",
+        expose_value=False,
+    )
+
+    channels = click.option(
+        "-fch",
+        "--channels",
+        type=IntRangeBuilder(0, len(utils.FREQS_DICT['H4C'])),
+        default=[(0, len(utils.FREQS_DICT['H4C']))],
+        show_default=True,
+        multiple=True,
+        help="Frequency channels to include. Specify as ints or 'low~high'",
+        callback=combine_int_ranges,
     )
     freq_range = click.option(
-        "-fr",
-        "--freq-range",
+        '--freq-range',
+        type=click.FloatRange(),
+        default=(0, np.inf),
         nargs=2,
-        default=(0, len(utils.FREQS_DICT['H4C'])),
-        show_default=True,
-        metavar="START STOP",
-        type=click.IntRange(0, len(utils.FREQS_DICT['H4C'])),
-        help="Frequency channel range (zero-based)",
+        help='Frequency range to include (in MHz)'
     )
-    freqs = click.option(
-        "-fch",
-        "--freqs",
-        multiple=True,
-        default=None,
-        type=click.IntRange(0, len(utils.FREQS_DICT['H4C'])),
-        metavar="FREQ_CHAN",
-        help="Frequency channel, allow multiple, add to --freq-range",
-    )
+
     sky_model = click.option(
         "-sm",
         "--sky-model",
@@ -49,10 +96,11 @@ class opts:
     )
     do_time_chunks = click.option(
         "--do-time-chunks",
-        default=None,
-        type=int,
+        default=[],
+        type=IntRangeBuilder(min=0),
         multiple=True,
-        help="Only run the simulation for these time chunks (useful for debugging/exploring)"
+        help="Only run the simulation for these time chunks (useful for debugging/exploring)",
+        callback=combine_int_ranges,
     )
     gpu = click.option("--gpu/--cpu", default=False, show_default=True, help="Use gpu or cpu")
     slurm_override = click.option(

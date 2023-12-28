@@ -528,8 +528,7 @@ def make_diffuse_model(channels: int, nside: int = 256) -> SkyModel:
 
 def run_make_sky_model(
     sky_model: str,
-    freq_range: tuple[int, int],
-    freqs: list[int],
+    channels: list[int],
     nside: int,
     slurm_override: tuple[tuple[str, str]],
     skip_existing: bool,
@@ -557,16 +556,11 @@ def run_make_sky_model(
     # Make the SBATCH script minus hera-sim-vis.py command
     program = _get_sbatch_program(gpu=False, slurm_override=slurm_override)
 
-    freq_chans = np.arange(*freq_range)
-    if freqs:
-        extra_freqs = freqs[np.isin(freqs, freq_chans, invert=True)]
-        freq_chans = np.append(freq_chans, extra_freqs)
-
     sbatch_dir = utils.REPODIR / "batch_scripts/skymodel"
     sbatch_dir.mkdir(parents=True, exist_ok=True)
 
     if split_freqs:
-        for fch in freq_chans:
+        for fch in channels:
             logger.info(f"Working on frequency channel {fch}")
             
             outfile = out_dir / f"fch{fch:04d}.skyh5"
@@ -600,11 +594,9 @@ def run_make_sky_model(
                 if not dry_run:
                     subprocess.call(cmd.split())
     else:
-        if freqs:
-            frqcmd = "--freqs" + " --freqs ".join((str(fch) for fch in freqs))
-        else:
-            frqcmd = ""
-        cmd = f"time python vsim.py sky-model {sky_model} --local --nside {nside} --freq-range {freq_range[0]} {freq_range[1]} {frqcmd}"
+        chan_opt = "--channels" + " --channels ".join((str(fch) for fch in channels))
+        
+        cmd = f"time python vsim.py sky-model {sky_model} --local --nside {nside} {chan_opt}"
 
         if utils.HPC_CONFIG["slurm"]:
             # Write job script and submit

@@ -50,8 +50,7 @@ yaml.add_representer(str, quoted_presenter)
 
 def make_hera_obsparam(
     layout: str | list[int] | Path, 
-    freq_range: tuple[int, int], 
-    freqs: Sequence[int], 
+    channels: list[int], 
     sky_model: str, 
     chunks: int, 
     do_chunks: list[int] | None,
@@ -63,11 +62,7 @@ def make_hera_obsparam(
     """Logic of the h4c cli function.
 
     This allow the function to be called from other modules."""
-    freq_chans = np.arange(*freq_range)
-    if freqs:
-        extra_freqs = freqs[np.isin(freqs, freq_chans, invert=True)]
-        freq_chans = np.append(freq_chans, extra_freqs)
-    freq_vals = utils.FREQS_DICT[season][freq_chans]
+    freq_vals = utils.FREQS_DICT[season][channels]
 
     if NTIMES % chunks != 0:
         raise ValueError(f"Please choose chunks to divide NTIMES {NTIMES} cleanly")
@@ -103,7 +98,7 @@ def make_hera_obsparam(
 
     outdir = utils.OUTDIR / utils.VIS_DIRFMT.format(sky_model=sky_model, chunks=chunks)
 
-    for fch, fv in zip(freq_chans, freq_vals):
+    for fch, fv in zip(channels, freq_vals):
         for ch in do_chunks:
             obsparams_file = obsparams_dir / utils.OBSPARAM_FLFMT.format(fch=fch, ch=ch)
 
