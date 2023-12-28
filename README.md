@@ -32,39 +32,45 @@ debugging, etc.)
       jobs).
 
 ### Running a Simulation
-Several general steps need to be taken to run a particular simulation. These can all
-be run at once by using `run_sim.py`, but sometimes it is preferable to do it one step at a time.
 
-1. Make sky models by running `python make_sky_model.py [SKYMODEL]`. You can use the
-   `--help` menu to find more info. This (currently) creates the sky models directly
-   on whatever your login node is. In the future, this might be updated to pass jobs
-   to SLURM. One file per frequency channel is output into the `sky_models/` directory.
+There is a top-level CLI interface for running simulations and managing their outputs.
+Use `./vsim.py --help` to see all the options you have.
 
-2. Make simulation configuration (obsparams) with `python make_obsparams.py`. 
-   There are several options here, so be sure to use the `--help` menu. Also, the
-   obsparams are created automatically if you run the next step, so there is no real
-   need to run this step individually. Some of the important options are `--layout`,
+Several general steps need to be taken to run a particular simulation. These can
+generally be done in three parts:
+
+1. Make sky models by running `./vsim.py sky-model [SKYMODEL]`. You can use the
+   `--help` menu to find more info. This sends jobs to the SLURM job manager on your
+   HPC to create a single .skyh5 model per frequency. One file per frequency channel is 
+   output into the `sky_models/` directory.
+
+2. Make simulation configuration (obsparams) with `./vsim.py make-obsparams`. 
+   **NOTE: this step is not necessary, as it can be done on-the-fly in the next step.**
+   There are several options here, so be sure to use the `--help` menu. 
+   Some of the important options are `--layout`,
    which is a string name (check the `help` menu to see what is available currently)
    that maps onto a particular antenna layout (usually a specific subset of HERA 350). 
    You can add your own by updating the `utils.py` module. You can *instead*
-   provide `-a [ANTNUM]` any number of times to include only those antennas from the
-   full HERA 350. You can also provide `--freq-range` and/or `--freqs` to specify
+   provide `-a [ANTNUM]` or `-a LOW~HIGH` any number of times to include only those 
+   antennas (or ranges) from the full HERA 350. You can also provide 
+   `--channels [CHANNEL]`  and/or `--channels LOW~HIGH` as well as 
+   `--freq-range LOW HIGH` to specify
    which channels to include (all frequency channels are from the actual HERA array).
-   Also provide the `--sky-model` in the same way as step 1. Finally, provide `--chunks` 
-   to set the number of chunks over which the 17280 LSTs will be simulated. Using a 
-   higher number can be good for debugging on small chunks.
+   Also provide the `--sky-model` in the same way as step 1. Finally, provide 
+   `--n-time-chunks` to set the number of chunks over which the 17280 LSTs will be 
+   simulated. Using a higher number can be good for debugging on small chunks.
 
-3. Run the simulation with `python run_sim.py`. Again, `--help` is your friend. Here,
+3. Run the simulation with `./vsim.py runsim`. Again, `--help` is your friend. Here,
    you can (in addition to all options from `make_obsparams.py` above) specify 
-   `--do-time-chunks` which limits the actual time chunks to simulate (i.e. you might 
-   split the simulation into 288 chunks, and only perform the first one). You can also 
-   specify `--dry-run` to create all the configuration files and sbatch files, but not 
-   actually run the simulation.
+   `--do-time-chunks LOW[~HIGH]` which limits the actual time chunks to simulate 
+   (i.e. you might split the simulation into 288 chunks, and only perform the first one). 
+   You can also specify `--dry-run` to create all the configuration files and sbatch 
+   files, but not actually run the simulation.
 
 ### Other Utilities
 
-* `rechunk-fast.py`: This performs cornerturns on the output of the `run_sim.py` 
+* ``./vsim.py cornerturn`: This performs cornerturns on the output of the `runsim` 
   command, taking in the files with large number of times and a single frequency and 
   outputing files with smaller number of times and all frequencies, ready to be 
-  passed on to systematics simulation. Run this script using `run_rechunk.sh`.
+  passed on to systematics simulation.
 * `notebooks/`: a bunch of notebooks used for validating the outputs.
