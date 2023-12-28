@@ -45,14 +45,21 @@ be run at once by using `run_sim.py`, but sometimes it is preferable to do it on
    obsparams are created automatically if you run the next step, so there is no real
    need to run this step individually. Some of the important options are `--layout`,
    which is a string name (check the `help` menu to see what is available currently)
-   that maps onto a particular antenna layout (usually a specific subset of HERA 350). You can add your own by updating the `utils.py` module. You can *instead*
+   that maps onto a particular antenna layout (usually a specific subset of HERA 350). 
+   You can add your own by updating the `utils.py` module. You can *instead*
    provide `-a [ANTNUM]` any number of times to include only those antennas from the
    full HERA 350. You can also provide `--freq-range` and/or `--freqs` to specify
    which channels to include (all frequency channels are from the actual HERA array).
-   Also provide the `--sky-model` in the same way as step 1. Finally, provide `--chunks` to set the number of chunks over which the 17280 LSTs will be simulated. Using a higher number can be good for debugging on small chunks.
+   Also provide the `--sky-model` in the same way as step 1. Finally, provide `--chunks` 
+   to set the number of chunks over which the 17280 LSTs will be simulated. Using a 
+   higher number can be good for debugging on small chunks.
 
 3. Run the simulation with `python run_sim.py`. Again, `--help` is your friend. Here,
-   you can (in addition to all options from `make_obsparams.py` above) specify `--do-time-chunks` which limits the actual time chunks to simulate (i.e. you might split the simulation into 288 chunks, and only perform the first one). You can also specify `--dry-run` to create all the configuration files and sbatch files, but not actually run the simulation.
+   you can (in addition to all options from `make_obsparams.py` above) specify 
+   `--do-time-chunks` which limits the actual time chunks to simulate (i.e. you might 
+   split the simulation into 288 chunks, and only perform the first one). You can also 
+   specify `--dry-run` to create all the configuration files and sbatch files, but not 
+   actually run the simulation.
 
 ### Other Utilities
 

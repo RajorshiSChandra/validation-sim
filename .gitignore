@@ -2,6 +2,7 @@ config_files/obsparams/*
 *~
 logs/*
 outputs/*
+sky_models/
 sky_models/*.fits
 sky_models/gleam_like/*
 sky_models/ptsrc/*
@@ -21,3 +22,4 @@ test-rechunk-script/*
 *.sbatch
 compression-cache/*
 tmp/
+profiles/

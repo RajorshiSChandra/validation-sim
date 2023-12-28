@@ -1,0 +1,125 @@
+import logging
+import click
+from . import utils
+
+
+logger = logging.getLogger(__name__)
+
+class opts:
+    layout = click.option(
+        "--layout", default=None, type=click.Choice(list(utils.ANTS_DICT.keys())),
+        help="A pre-defined HERA layout to use"
+    )
+    ants = click.option(
+        "-a", "--ants", type=click.IntRange(0, 350), default=None, multiple=True,
+        help="ants to use as a subset of the full HERA 350"
+    )
+    freq_range = click.option(
+        "-fr",
+        "--freq-range",
+        nargs=2,
+        default=(0, len(utils.FREQS_DICT['H4C'])),
+        show_default=True,
+        metavar="START STOP",
+        type=click.IntRange(0, len(utils.FREQS_DICT['H4C'])),
+        help="Frequency channel range (zero-based)",
+    )
+    freqs = click.option(
+        "-fch",
+        "--freqs",
+        multiple=True,
+        default=None,
+        type=click.IntRange(0, len(utils.FREQS_DICT['H4C'])),
+        metavar="FREQ_CHAN",
+        help="Frequency channel, allow multiple, add to --freq-range",
+    )
+    sky_model = click.option(
+        "-sm",
+        "--sky-model",
+        default="ptsrc",
+        show_default=True,
+        type=click.Choice([d.name for d in utils.SKYDIR.glob("*") if d.name != "raw"], case_sensitive=True),
+        help="Sky model to simulate",
+    )
+    n_time_chunks = click.option(
+        "--n-time-chunks",
+        default=3,
+        show_default=True,
+        help="Split the simulation into a number of time chunks",
+    )
+    do_time_chunks = click.option(
+        "--do-time-chunks",
+        default=None,
+        type=int,
+        multiple=True,
+        help="Only run the simulation for these time chunks (useful for debugging/exploring)"
+    )
+    gpu = click.option("--gpu/--cpu", default=False, show_default=True, help="Use gpu or cpu")
+    slurm_override = click.option(
+        "-so",
+        "--slurm-override",
+        nargs=2,
+        multiple=True,
+        metavar="FLAG VALUE",
+        help="Override slurm options in the hpc config (excluding job-name and output), "
+        "allow multiple",
+    )
+    skip_existing = click.option(
+        "--skip-existing/--rerun-existing",
+        default=True,
+        show_default=True,
+        help="Skip or rerun if the simulation output already exists",
+    )
+    force_remake_obsparams = click.option(
+        "--force-remake-obsparams",
+        is_flag=True,
+        help="If set, remake all obsparams before running the simulations",
+    )
+    log_level = click.option(
+        "--log-level",
+        default="INFO",
+        type=click.Choice(["INFO", "WARNING", "ERROR", "DEBUG"], case_sensitive=True),
+        show_default=True,
+        help="Verbosity level, also pass the flag to hera-sim-vis.py",
+    )
+    profile = click.option(
+        "--profile/--no-profile",
+        default=False,
+        help="Run line-profiling"
+    )
+    dry_run = click.option("-d", "--dry-run", is_flag=True, help="Pass the flag to hera-sim-vis.py")
+
+    @classmethod
+    def add_opts(cls, fnc, ignore=None):
+        ignore = ignore or []
+        for name, opt in reversed(cls.__dict__.items()):
+            if name not in ignore and callable(opt):
+                fnc = opt(fnc)
+        return fnc
+        
+
+def _get_sbatch_program(gpu: bool, slurm_override=None):
+    conda_params = utils.HPC_CONFIG["conda"]
+    module_params = utils.HPC_CONFIG["module"]
+    slurm_params = utils.HPC_CONFIG["slurm"]['gpu' if gpu else 'cpu']
+
+    if slurm_override is not None:  # Modify slurm options
+        for k, v in slurm_override:
+            slurm_params[k] = v
+
+    shebang = "#!/bin/bash"
+    sbatch = "\n".join([f"#SBATCH --{k}={v}" for k, v in slurm_params.items()])
+
+    conda = """
+source {conda_path}/bin/activate
+conda activate {environment_name}
+""".format_map(
+        conda_params
+    )
+
+    module = "\n".join([f"module load {md}" for md in module_params])
+
+    program = "\n".join([shebang, sbatch, conda, module])
+    return program
+
+

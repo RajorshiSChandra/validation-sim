@@ -19,7 +19,7 @@ slurm:
   # Flags not shown here should work
 
   cpu:
-    partition: "GPU"  # Name of partition
+    partition: "Main"  # Name of partition
     nodes: 1  # Number of nodes
     mem: "24GB"  # Memory with unit
     ntasks: 1  # Number of tasks
