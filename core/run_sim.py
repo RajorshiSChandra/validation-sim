@@ -34,33 +34,7 @@ def run_validation_sim(
     do_time_chunks: list[int] | None = None,
     profile: bool = False,
 ):
-    out_dir = utils.OUTDIR / utils.VIS_DIRFMT.format(sky_model=sky_model, chunks=n_time_chunks)
-    obsp_dir = utils.OBSPDIR / utils.OBSPARAM_DIRFMT.format(
-        sky_model=sky_model, chunks=n_time_chunks
-    )
     simulator_config = utils.REPODIR / "visgpu.yaml" if gpu else utils.REPODIR / "viscpu.yaml"
-
-    if not do_time_chunks:
-        do_time_chunks = list(range(n_time_chunks))
-
-    time_est = calculate_expected_time(n_time_chunks)
-
-    # We want to override the job-name to be <sky_model>-<fch>-<ch>, but the last two
-    # variables have to be accessed in the loop, so we will be instead override it to
-    # a Python string formatting pattern and format it in the loop.
-    # Note that click default `slurm_overrride` to (), and we want it to be "2D" tuple
-    logdir = utils.LOGDIR / 'vis' / sky_model
-    logdir.mkdir(parents=True, exist_ok=True)
-    slurm_override = slurm_override + (
-        ("job-name", "{sky_model}-fch{fch:04d}-chunk{ch}"),
-        ("output", "{logdir}/fch{fch:04d}-ch{ch:03d}_%J.out"),
-    )
-
-    if 'time' not in [x[0] for x in slurm_override]:
-        slurm_override = slurm_override + (("time", f"0-00:{time_est}:00"),)
-        
-    # Make the SBATCH script minus hera-sim-vis.py command
-    program = _get_sbatch_program(gpu, slurm_override)
 
     logger.info(f"Frequency channels to run: {channels}")
 
@@ -74,6 +48,38 @@ def run_validation_sim(
         force=force_remake_obsparams,
         do_chunks=do_time_chunks
     )
+
+    if not do_time_chunks:
+        do_time_chunks = list(range(n_time_chunks))
+
+    time_est = calculate_expected_time(n_time_chunks)
+
+    # We want to override the job-name to be <sky_model>-<fch>-<ch>, but the last two
+    # variables have to be accessed in the loop, so we will be instead override it to
+    # a Python string formatting pattern and format it in the loop.
+    # Note that click default `slurm_overrride` to (), and we want it to be "2D" tuple
+    logdir = utils.LOGDIR / 'vis' / utils.DIRFMT.format(
+        sky_model=sky_model, chunks=n_time_chunks, layout=layout_file.stem
+    )
+    logdir.mkdir(parents=True, exist_ok=True)
+    slurm_override = slurm_override + (
+        ("job-name", "{sky_model}-fch{fch:04d}-chunk{ch}"),
+        ("output", "{logdir}/fch{fch:04d}-ch{ch:03d}_%J.out"),
+    )
+
+    if 'time' not in [x[0] for x in slurm_override]:
+        slurm_override = slurm_override + (("time", f"0-00:{time_est}:00"),)
+        
+    # Make the SBATCH script minus hera-sim-vis.py command
+    program = _get_sbatch_program(gpu, slurm_override)
+
+    out_dir = utils.OUTDIR / utils.VIS_DIRFMT.format(
+        sky_model=sky_model, chunks=n_time_chunks, layout=layout_file.stem
+    )
+    obsp_dir = utils.OBSPDIR / utils.OBSPARAM_DIRFMT.format(
+        sky_model=sky_model, chunks=n_time_chunks, layout=layout_file.stem
+    )
+
     compress_cache = utils.COMPRESSDIR / utils.COMPRESS_FMT.format(
         chunks=n_time_chunks, layout_file=layout_file.stem
     )
@@ -88,9 +94,11 @@ def run_validation_sim(
             logger.info(f"Working on frequency channel {fch} chunk {ch}")
             
             outfile = out_dir / utils.VIS_FLFMT.format(
-                sky_model=sky_model, fch=fch, ch=ch
+                sky_model=sky_model, fch=fch, ch=ch, layout=layout_file.stem
             )
-            obsp = obsp_dir / utils.OBSPARAM_FLFMT.format(sky_model=sky_model, ch=ch, fch=fch)
+            obsp = obsp_dir / utils.OBSPARAM_FLFMT.format(
+                sky_model=sky_model, ch=ch, fch=fch, layout=layout_file.stem
+            )
 
             # Check if output file already existed, if clobber is False
             if skip_existing and outfile.exists():
@@ -100,7 +108,7 @@ def run_validation_sim(
             trace = " "
             profilestr=""
             if profile:
-                proflabel = f"{sky_model}-gpu{gpu}-nt{n_time_chunks}-{layout}-mv{matvis.__version__}-hs{hera_sim.__version__}"
+                proflabel = f"{sky_model}-gpu{gpu}-nt{n_time_chunks}-{layout_file.stem}-mv{matvis.__version__}-hs{hera_sim.__version__}"
                 if gpu:
                     trace = (
                         "nsys profile -w true -t cuda,cublas -s cpu -f true -x true "
@@ -122,8 +130,8 @@ def run_validation_sim(
                 # Write job script and submit
                 sbatch_dir = utils.REPODIR / "batch_scripts/vis"
                 sbatch_dir.mkdir(parents=True, exist_ok=True)
-                sbatch_file = (
-                    sbatch_dir / f"{sky_model}_fch{fch:04d}_chunk{ch:03d}.sbatch"
+                sbatch_file = sbatch_dir / utils.FLFMT.format(
+                        sky_model=sky_model, fch=fch, ch=ch, layout=layout_file.stem
                 )
                 
                 logger.info(f"Creating sbatch file: {sbatch_file}")

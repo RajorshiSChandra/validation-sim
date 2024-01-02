@@ -41,7 +41,6 @@ def hera_cli(
     Use the default parameters, configuration files, and directories for HERA sims
     (see make_obsparams.py).
     """
-    print(channels, freq_range)
     channels = _cli.parse_channels(channels, freq_range)
 
     run_validation_sim(channels=channels, **kwargs)

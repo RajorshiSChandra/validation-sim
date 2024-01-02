@@ -12,7 +12,6 @@ sky_models/gsm*/
 sky_models/eor/
 **/.ipynb_checkpoints
 **/__pycache__
-profiling/*
 *.fits
 *.png
 *.pdf
@@ -23,3 +22,4 @@ test-rechunk-script/*
 compression-cache/*
 tmp/
 profiles/
+batch_scripts/

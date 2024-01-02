@@ -26,11 +26,15 @@ OBSPDIR = CFGDIR / "obsparams"
 COMPRESSDIR = REPODIR / 'compression-cache'
 LOGDIR = REPODIR / "logs"
 
-OBSPARAM_DIRFMT = "{sky_model}/nt17280_{chunks}chunks"
-OBSPARAM_FLFMT = "fch{fch:04d}_chunk{ch:03d}.yaml"
 
-VIS_DIRFMT = "{sky_model}/nt17280-{chunks:03d}chunks"
-VIS_FLFMT  = "{sky_model}_fch{fch:04d}_nt17280_chunk{ch:03d}"
+DIRFMT = "{sky_model}/nt17280-{chunks:03d}chunks-{layout}"
+FLFMT = "{sky_model}_fch{fch:04d}_nt17280_chunk{ch:03d}_{layout}"
+
+OBSPARAM_DIRFMT = DIRFMT
+OBSPARAM_FLFMT = FLFMT
+
+VIS_DIRFMT = DIRFMT
+VIS_FLFMT  = FLFMT
 
 COMPRESS_FMT = "ch{chunks}_{layout_file}.npy"
 
@@ -42,7 +46,7 @@ LAYOUTDIR = CFGDIR / "array_layouts"
 FULL_HERA_LAYOUT = LAYOUTDIR / "array_layout_hera_350.txt"
 
 ANTS_DICT = {
-    'H4C': np.genfromtxt(LAYOUTDIR / 'h4c_ants.txt'),
+    'H4C': np.genfromtxt(LAYOUTDIR / 'h4c_ants.txt').astype(int),
     'HEX': np.arange(320),
     'FULL': np.arange(350),
     'HERA19': [0, 1, 2, 11, 12, 13, 14, 23, 24, 25, 26, 27, 37, 38, 39, 40, 52, 53, 54],

@@ -74,11 +74,6 @@ def make_hera_obsparam(
 
     Ntimes_per_chunk = NTIMES // chunks
 
-    obsparams_dir = utils.OBSPDIR / utils.OBSPARAM_DIRFMT.format(
-        sky_model=sky_model, chunks=chunks
-    )
-    obsparams_dir.mkdir(parents=True, exist_ok=True)
-
     if isinstance(layout, str):
         # it's a name
         layout_file = utils.make_hera_layout(name=layout)
@@ -96,11 +91,20 @@ def make_hera_obsparam(
         spline_interp_order=spline_interp_order
     )
 
-    outdir = utils.OUTDIR / utils.VIS_DIRFMT.format(sky_model=sky_model, chunks=chunks)
+    obsparams_dir = utils.OBSPDIR / utils.OBSPARAM_DIRFMT.format(
+        sky_model=sky_model, chunks=chunks, layout=layout_file.stem
+    )
+    obsparams_dir.mkdir(parents=True, exist_ok=True)
+
+    outdir = utils.OUTDIR / utils.VIS_DIRFMT.format(
+        sky_model=sky_model, chunks=chunks, layout=layout_file.stem
+    )
 
     for fch, fv in zip(channels, freq_vals):
         for ch in do_chunks:
-            obsparams_file = obsparams_dir / utils.OBSPARAM_FLFMT.format(fch=fch, ch=ch)
+            obsparams_file = obsparams_dir / utils.OBSPARAM_FLFMT.format(
+                fch=fch, ch=ch, layout=layout_file.stem, sky_model=sky_model
+            )
 
             if obsparams_file.exists() and not force:
                 continue
@@ -110,7 +114,7 @@ def make_hera_obsparam(
             obsparams = {
                 "filing": {
                     "outdir": f"{outdir}",
-                    "outfile_name": utils.VIS_FLFMT.format(sky_model=sky_model, fch=fch, ch=ch),
+                    "outfile_name": utils.VIS_FLFMT.format(sky_model=sky_model, fch=fch, ch=ch, layout=layout_file.stem),
                     "output_format": "uvh5",
                     "clobber": True,
                 },

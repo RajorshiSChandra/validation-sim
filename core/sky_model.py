@@ -54,8 +54,9 @@ def randsphere(n, theta_range = (0,np.pi), phi_range = (0,2*np.pi)):
     return theta, phi
 
 def dnds_franzen(s, a=None, norm=False):
+    """S here is in Jy."""
     if a is None:
-        a = [3.52, 0.307, -0.388, -0.0404, 0.0351, 0.00600]  # from franzen
+        a = [3.52, 0.307, -0.388, -0.0404, 0.0351, 0.00600]  # from franzen 2019
     out = 10**(sum(np.log10(s)**i * aa for i, aa in enumerate(a)))
     if norm:
         return out
@@ -111,12 +112,12 @@ def dnds_franzen(s, a=None, norm=False):
 
 class FranzenSourceCounts:
     """Class for dealing with source counts from Franzen et al. (2019)."""
-    def __init__(self, smin, smax, base_svec=None, base_cdf=None):
+    def __init__(self, smin, smax, base_svec=None, base_cdf=None, npoints: int=10000):
         self.smin = smin
         self.smax = smax
 
         if base_svec is None:
-            self._base_svec = np.logspace(4, -10, 1000)
+            self._base_svec = np.logspace(4, -10, npoints)
         else:
             self._base_svec = base_svec
         
@@ -128,6 +129,8 @@ class FranzenSourceCounts:
             self._base_cdf = base_cdf
 
         self._mask = (self._base_svec > self.smin) & (self._base_svec < self.smax)
+        self.svec = self._base_svec[self._mask]
+
         self._cdf = self._base_cdf.copy()
         self._cdf = self._cdf[self._mask]
         self._cdf -= self._cdf.min()
@@ -144,7 +147,7 @@ class FranzenSourceCounts:
         pixarea = hp.nside2pixarea(nside)
         smin_idx = np.argwhere(self.cumulative_source_density * pixarea > nsources)[0][0]
         return FranzenSourceCounts(
-            smin=self._base_svec[smin_idx], smax=self.smax, 
+            smin=self.svec[smin_idx], smax=self.smax, 
             base_cdf=self._base_cdf, base_svec=self._base_svec
         )
     
@@ -166,7 +169,7 @@ class FranzenSourceCounts:
 
     @cached_property
     def invcdf(self):
-        return InterpolatedUnivariateSpline(self.normalized_cdfvec, self._base_svec[self._mask])
+        return InterpolatedUnivariateSpline(self.normalized_cdfvec, self.svec)
     
     def sample_fluxes(self, solid_angle: float) -> np.ndarray:
         n = self.sample_source_count(solid_angle)
@@ -374,15 +377,19 @@ def make_ateam_model() -> SkyModel:
 def make_ptsrc_model(channels: list[int], nside: int = 256, **kw):
     # Load GLEAM-like and A-Team SkyModel objects, making them if they do not exist
     # in the default path
-    
-    gleam_like = make_gleam_like_model(nside=nside, **kw)
-    
+
     if not ATEAM_MODEL_FILE.exists():
         ateam = make_ateam_model()
         ateam.write_skyh5(ATEAM_MODEL_FILE)
     else:
         ateam = SkyModel.from_file(ATEAM_MODEL_FILE)
         ateam.write_skyh5(ATEAM_MODEL_FILE, clobber=True)  # This keeps it updated for newer versions of pyradiosky
+
+    gleam_like = make_gleam_like_model(
+        nside=nside, max_flux_density=ateam.stokes[0].min().to_value("Jy"),
+        **kw
+    )
+    
 
     # Evaluate the models at a given frequency
     for fch in channels:
@@ -594,7 +601,20 @@ def run_make_sky_model(
                 if not dry_run:
                     subprocess.call(cmd.split())
     else:
-        chan_opt = "--channels" + " --channels ".join((str(fch) for fch in channels))
+        channels = sorted(channels)
+        groups = [[channels[0]]]
+        for ch in channels[1:]:
+            if ch == groups[-1][-1] + 1:
+                groups[-1].append(ch)
+            else:
+                groups.append([ch])
+
+        chan_opt = ""
+        for g in groups:
+            if len(g)==1:
+                chan_opt += f"--channels {g[0]} "
+            else:
+                chan_opt += f"--channels {g[0]}~{g[-1]}"
         
         cmd = f"time python vsim.py sky-model {sky_model} --local --nside {nside} {chan_opt}"
 

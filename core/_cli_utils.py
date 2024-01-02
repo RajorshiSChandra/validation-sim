@@ -10,19 +10,26 @@ class IntRangeBuilder(click.IntRange):
     name = "integer range"
 
     def convert(self, value, param, ctx) -> list[int]:
-        if '~' not in value:
+        try:
+            v = int(value)
             return [super().convert(value, param, ctx)]
+        except Exception:
+            pass
         
-        elif isinstance(value, str):
+        if isinstance(value, str):
             try:
                 low, high = value.split("~")
             except ValueError:
                 self.fail(f"{value!r} is not in the form 'low~high'", param, ctx)
+        elif isinstance(value, (list, tuple)) and len(value)==2:
+            low, high = value
+        else:
+            ctx.fail(f"parameter {param!r} is of unknown type: {value}")
 
-            low = super().convert(low, param, ctx)
-            high = super().convert(high, param, ctx)
+        low = super().convert(low, param, ctx)
+        high = super().convert(high, param, ctx)
 
-            return list(range(low, high))
+        return list(range(low, high))
             
 def combine_int_ranges(ctx, param, value) -> list[int]:
     # value should be a list of lists of ints
