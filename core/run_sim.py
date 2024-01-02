@@ -1,22 +1,30 @@
-
 #!/usr/bin/env python3
-import subprocess
+"""Utilities for running a full simulation."""
 import logging
-import numpy as np
-from . import utils
-from core.obsparams import make_hera_obsparam
-from typing import Sequence
-import matvis
+import subprocess
+
 import hera_sim
+import matvis
+
+from core.obsparams import make_hera_obsparam
+
+from . import utils
 from ._cli_utils import _get_sbatch_program
 
 logger = logging.getLogger(__name__)
 
+
 def calculate_expected_time(chunks: int) -> int:
+    """
+    Calculate the expected time for a given number of chunks.
+
+    Calibrated to Bridges GPU.
+    """
     nt = 17280 // chunks
 
     # 5 min buffer + (nt / 5760) * 1 hr
     return int(max(5, (nt / 5760) * 60))
+
 
 def run_validation_sim(
     layout: str,
@@ -29,24 +37,27 @@ def run_validation_sim(
     force_remake_obsparams: bool,
     log_level: str,
     dry_run: bool,
-    freq_interp_kind: str = 'cubic', 
+    freq_interp_kind: str = "cubic",
     spline_interp_order: int = 3,
     do_time_chunks: list[int] | None = None,
     profile: bool = False,
 ):
-    simulator_config = utils.REPODIR / "visgpu.yaml" if gpu else utils.REPODIR / "viscpu.yaml"
+    """Run a full validation sim on SLURM compute."""
+    simulator_config = (
+        utils.REPODIR / "visgpu.yaml" if gpu else utils.REPODIR / "viscpu.yaml"
+    )
 
     logger.info(f"Frequency channels to run: {channels}")
 
     layout_file = make_hera_obsparam(
-        layout=layout, 
+        layout=layout,
         channels=channels,
-        sky_model=sky_model, 
-        chunks=n_time_chunks, 
-        freq_interp_kind = freq_interp_kind, 
-        spline_interp_order = spline_interp_order, 
+        sky_model=sky_model,
+        chunks=n_time_chunks,
+        freq_interp_kind=freq_interp_kind,
+        spline_interp_order=spline_interp_order,
         force=force_remake_obsparams,
-        do_chunks=do_time_chunks
+        do_chunks=do_time_chunks,
     )
 
     if not do_time_chunks:
@@ -58,18 +69,20 @@ def run_validation_sim(
     # variables have to be accessed in the loop, so we will be instead override it to
     # a Python string formatting pattern and format it in the loop.
     # Note that click default `slurm_overrride` to (), and we want it to be "2D" tuple
-    logdir = utils.LOGDIR / 'vis' / utils.DIRFMT.format(
+    logfile = utils.DIRFMT.format(
         sky_model=sky_model, chunks=n_time_chunks, layout=layout_file.stem
     )
+    logdir = utils.LOGDIR / "vis" / logfile
+
     logdir.mkdir(parents=True, exist_ok=True)
     slurm_override = slurm_override + (
         ("job-name", "{sky_model}-fch{fch:04d}-chunk{ch}"),
         ("output", "{logdir}/fch{fch:04d}-ch{ch:03d}_%J.out"),
     )
 
-    if 'time' not in [x[0] for x in slurm_override]:
+    if "time" not in [x[0] for x in slurm_override]:
         slurm_override = slurm_override + (("time", f"0-00:{time_est}:00"),)
-        
+
     # Make the SBATCH script minus hera-sim-vis.py command
     program = _get_sbatch_program(gpu, slurm_override)
 
@@ -92,7 +105,7 @@ def run_validation_sim(
     for fch in channels:
         for ch in do_time_chunks:
             logger.info(f"Working on frequency channel {fch} chunk {ch}")
-            
+
             outfile = out_dir / utils.VIS_FLFMT.format(
                 sky_model=sky_model, fch=fch, ch=ch, layout=layout_file.stem
             )
@@ -106,34 +119,42 @@ def run_validation_sim(
                 continue
 
             trace = " "
-            profilestr=""
+            profilestr = ""
             if profile:
-                proflabel = f"{sky_model}-gpu{gpu}-nt{n_time_chunks}-{layout_file.stem}-mv{matvis.__version__}-hs{hera_sim.__version__}"
+                proflabel = (
+                    f"{sky_model}-gpu{gpu}-nt{n_time_chunks}-{layout_file.stem}-"
+                    f"mv{matvis.__version__}-hs{hera_sim.__version__}"
+                )
                 if gpu:
                     trace = (
                         "nsys profile -w true -t cuda,cublas -s cpu -f true -x true "
                         f"-o profiles/{proflabel} "
                     )
-                profilestr=f"--profile --profile-output profiling/{proflabel}.profile.txt"
+                profilestr = (
+                    f"--profile --profile-output profiling/{proflabel}.profile.txt"
+                )
                 prof_funcs = [
                     f"matvis.{'gpu' if gpu else 'cpu'}:simulate",
-                    f"hera_sim.visibilities.matvis:MatVis",
-                    f"hera_sim.visibilities.simulators:VisibilitySimulation",
-                    f"hera_sim.visibilities.simulators:ModelData",
+                    "hera_sim.visibilities.matvis:MatVis",
+                    "hera_sim.visibilities.simulators:VisibilitySimulation",
+                    "hera_sim.visibilities.simulators:ModelData",
                 ]
                 prof_funcs = ",".join(prof_funcs)
                 profilestr += f' --profile-funcs "{prof_funcs}"'
 
-            cmd = f"{trace}hera-sim-vis.py {sim_options} {profilestr} {obsp} {simulator_config}"
+            cmd = (
+                f"{trace}hera-sim-vis.py {sim_options} {profilestr} {obsp} "
+                f"{simulator_config}"
+            )
 
             if utils.HPC_CONFIG["slurm"]:
                 # Write job script and submit
                 sbatch_dir = utils.REPODIR / "batch_scripts/vis"
                 sbatch_dir.mkdir(parents=True, exist_ok=True)
                 sbatch_file = sbatch_dir / utils.FLFMT.format(
-                        sky_model=sky_model, fch=fch, ch=ch, layout=layout_file.stem
+                    sky_model=sky_model, fch=fch, ch=ch, layout=layout_file.stem
                 )
-                
+
                 logger.info(f"Creating sbatch file: {sbatch_file}")
                 # Now, join the job script with the hera-sim-vis.py command
                 # and format the job-name
@@ -151,4 +172,3 @@ def run_validation_sim(
                 logger.info(f"Running the simulation locally\nCommand: {cmd}")
                 if not dry_run:
                     subprocess.call(cmd.split())
-

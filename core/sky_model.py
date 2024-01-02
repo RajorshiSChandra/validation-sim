@@ -1,34 +1,38 @@
-import numpy as np
-import healpy as hp
-from astropy.coordinates import Longitude, Latitude
-from astropy import units
-from astropy.units import Quantity
-from pyradiosky import SkyModel
-from pygdsm import GlobalSkyModel
-from scipy import integrate
-from scipy.interpolate import InterpolatedUnivariateSpline
-from functools import cached_property
-from scipy.stats import gaussian_kde
-from . import utils
-from ._cli_utils import _get_sbatch_program
+"""Utilities for creating sky models."""
 import logging
 import subprocess
-from functools import cache
+from functools import cache, cached_property
+
+import healpy as hp
+import numpy as np
+from astropy import units
+from astropy.coordinates import Latitude, Longitude
+from astropy.units import Quantity
+from pygdsm import GlobalSkyModel
+from pyradiosky import SkyModel
+from scipy import integrate
+from scipy.interpolate import InterpolatedUnivariateSpline
+from scipy.stats import gaussian_kde
+
+from . import utils
+from ._cli_utils import _get_sbatch_program
 
 logger = logging.getLogger(__name__)
 
-H4C_FREQS = utils.FREQS_DICT['H4C'] * units.Hz
+H4C_FREQS = utils.FREQS_DICT["H4C"] * units.Hz
 ATEAM_MODEL_FILE = utils.RAWSKYDIR / "ateam.skyh5"
 
+
 def write_sky(sky: SkyModel, model: str, channel: int):
+    """Write a particular channel of a sky model to file."""
     d = utils.SKYDIR / model
     d.mkdir(parents=True, exist_ok=True)
     sky.write_skyh5(f"{d}/fch{channel:04d}.skyh5", clobber=True)
 
 
-def randsphere(n, theta_range = (0,np.pi), phi_range = (0,2*np.pi)):
+def randsphere(n, theta_range=(0, np.pi), phi_range=(0, 2 * np.pi)):
     """
-    Generate random angular theta, phi points on the sphere
+    Generate random angular theta, phi points on the sphere.
 
     Parameters
     ----------
@@ -40,31 +44,33 @@ def randsphere(n, theta_range = (0,np.pi), phi_range = (0,2*np.pi)):
     theta,phi: tuple of arrays
     """
     phi = np.random.random(n)
-    phi = phi*(phi_range[1]-phi_range[0]) + phi_range[0]
+    phi = phi * (phi_range[1] - phi_range[0]) + phi_range[0]
 
-    cos_theta_min=np.cos(theta_range[0])
-    cos_theta_max=np.cos(theta_range[1])
+    cos_theta_min = np.cos(theta_range[0])
+    cos_theta_max = np.cos(theta_range[1])
 
     v = np.random.random(n)
-    v *= (cos_theta_max-cos_theta_min)
+    v *= cos_theta_max - cos_theta_min
     v += cos_theta_min
 
     theta = np.arccos(v)
 
     return theta, phi
 
+
 def dnds_franzen(s, a=None, norm=False):
-    """S here is in Jy."""
+    """
+    Compute the dn/dS function from Franzen 2019.
+
+    S here is in Jy.
+    """
     if a is None:
         a = [3.52, 0.307, -0.388, -0.0404, 0.0351, 0.00600]  # from franzen 2019
-    out = 10**(sum(np.log10(s)**i * aa for i, aa in enumerate(a)))
+    out = 10 ** (sum(np.log10(s) ** i * aa for i, aa in enumerate(a)))
     if norm:
         return out
     else:
         return s**-2.5 * out
-    
-
-
 
 
 """===LOGIC CODE==="""
@@ -110,9 +116,11 @@ def dnds_franzen(s, a=None, norm=False):
 #         clobber=True
 #     )
 
+
 class FranzenSourceCounts:
     """Class for dealing with source counts from Franzen et al. (2019)."""
-    def __init__(self, smin, smax, base_svec=None, base_cdf=None, npoints: int=10000):
+
+    def __init__(self, smin, smax, base_svec=None, base_cdf=None, npoints: int = 10000):
         self.smin = smin
         self.smax = smax
 
@@ -120,11 +128,14 @@ class FranzenSourceCounts:
             self._base_svec = np.logspace(4, -10, npoints)
         else:
             self._base_svec = base_svec
-        
+
         if base_cdf is None:
             self._base_cdf = np.zeros(len(self._base_svec))
             for i, x in enumerate(self._base_svec[1:], start=1):
-                self._base_cdf[i] = integrate.quad(dnds_franzen, x, self._base_svec[i-1])[0] + self._base_cdf[i-1]
+                self._base_cdf[i] = (
+                    integrate.quad(dnds_franzen, x, self._base_svec[i - 1])[0]
+                    + self._base_cdf[i - 1]
+                )
         else:
             self._base_cdf = base_cdf
 
@@ -135,74 +146,92 @@ class FranzenSourceCounts:
         self._cdf = self._cdf[self._mask]
         self._cdf -= self._cdf.min()
 
-    def with_bounds(self, smin: float | None = None, smax: float | None = None) -> 'FranzenSourceCounts':
+    def with_bounds(
+        self, smin: float | None = None, smax: float | None = None
+    ) -> "FranzenSourceCounts":
+        """Return a new object with different Smin/Smax."""
         if smin is None:
             smin = self.smin
         if smax is None:
             smax = self.smax
 
         return FranzenSourceCounts(smin, smax, self._base_svec, self._base_cdf)
-    
-    def with_nsources_per_pixel(self, nsources: int, nside: int) -> 'FranzenSourceCounts':
+
+    def with_nsources_per_pixel(
+        self, nsources: int, nside: int
+    ) -> "FranzenSourceCounts":
+        """Return a new object that sets Smin based on a desired number of sources."""
         pixarea = hp.nside2pixarea(nside)
-        smin_idx = np.argwhere(self.cumulative_source_density * pixarea > nsources)[0][0]
+        smin_idx = np.argwhere(self.cumulative_source_density * pixarea > nsources)[0][
+            0
+        ]
         return FranzenSourceCounts(
-            smin=self.svec[smin_idx], smax=self.smax, 
-            base_cdf=self._base_cdf, base_svec=self._base_svec
+            smin=self.svec[smin_idx],
+            smax=self.smax,
+            base_cdf=self._base_cdf,
+            base_svec=self._base_svec,
         )
-    
+
     @cached_property
     def cumulative_source_density(self):
+        """The CDF of dn/ds."""
         return self._cdf
 
     @cached_property
     def normalized_cdfvec(self):
+        """The normalzed CDF (maximum density of 1)."""
         return self.cumulative_source_density / self.nbar
-    
+
     @cached_property
     def nbar(self) -> float:
         """The mean density of galaxies (per steradian) within the given flux range."""
         return self.cumulative_source_density.max()
-    
+
     def sample_source_count(self, solid_angle: float) -> int:
+        """Get a random number specifying the number of sources in a given region."""
         return np.random.poisson(solid_angle * self.nbar)
 
     @cached_property
     def invcdf(self):
+        """The inverse CDF."""
         return InterpolatedUnivariateSpline(self.normalized_cdfvec, self.svec)
-    
+
     def sample_fluxes(self, solid_angle: float) -> np.ndarray:
+        """Sample from dn/ds in a given solid angle."""
         n = self.sample_source_count(solid_angle)
         return self.invcdf(np.random.uniform(size=n))
 
-    def sample_pixel_flux(self, nside: int, n: int =1) -> np.ndarray:
+    def sample_pixel_flux(self, nside: int, n: int = 1) -> np.ndarray:
+        """Generate samples of the total flux in a pixel."""
         solid_angle = hp.nside2pixarea(nside)
         out = np.zeros(n)
         for i in range(n):
             out[i] = np.sum(self.sample_fluxes(solid_angle))
         return out
 
-    def pixel_flux_distribution(self, nside: int, n: int=10000):
+    def pixel_flux_distribution(self, nside: int, n: int = 10000):
         """Get a sample-able distribution of flux within pixels.
-        
-        This does a semi-brute-force calculation, finding the distribution by 
-        Monte-Carloing many pixels of total flux (drawing point sources in each 
-        pixel from the source count distribution). Using an analytic formula is not 
+
+        This does a semi-brute-force calculation, finding the distribution by
+        Monte-Carloing many pixels of total flux (drawing point sources in each
+        pixel from the source count distribution). Using an analytic formula is not
         possible. Even using the mean and variance (which is analytically tractable)
         is not useful since the distribution is highly non-Gaussian in general.
         """
         fluxes = self.sample_pixel_flux(nside, n=n)
         return gaussian_kde(np.log10(fluxes))
 
+
 @cache
 def franzen_base() -> FranzenSourceCounts:
+    """Get a base source counts object that enables caching the bigger computations."""
     return FranzenSourceCounts(smin=1e-10, smax=1e4)
 
 
 def make_gleam_like_model(
-    max_flux_density: float = 100.0, 
-    seed: int = 42, 
-    mean_spectral_index: float = 0.8, 
+    max_flux_density: float = 100.0,
+    seed: int = 42,
+    mean_spectral_index: float = 0.8,
     sigma_spectral_index: float = 0.05,
     nside: int = 256,
 ) -> SkyModel:
@@ -212,19 +241,19 @@ def make_gleam_like_model(
     This creates a set of point sources with a flux distribution consistent with that
     measured by Franzen et al. (2019) using GLEAM measurements. The brightest sources
     can be omitted with the `max_flux_density` parameter, to allow for putting real
-    bright sources on top. 
+    bright sources on top.
 
-    The distribution of sources is assumed to be uniform on the sky, which is not 
-    hugely inconsistent with reality given that the bulk of sources are faint and 
-    therefore unlikely to be highly biased. 
+    The distribution of sources is assumed to be uniform on the sky, which is not
+    hugely inconsistent with reality given that the bulk of sources are faint and
+    therefore unlikely to be highly biased.
 
     The number of sources returned depends on the `nside` parameter, which sets the
-    assumed resolution of the telescope. We aim for one source per healpix pixel on 
+    assumed resolution of the telescope. We aim for one source per healpix pixel on
     average. If we had more sources, they would be "confused" and appear as a background
-    thermal-noise-like rumble in the diffuse map. 
+    thermal-noise-like rumble in the diffuse map.
 
     Parameters
-    ------
+    ----------
     max_flux_density: float, optional
         The maximum flux density of the sources. The default is 100.0.
     seed: int, optional
@@ -244,12 +273,12 @@ def make_gleam_like_model(
 
     """
     np.random.seed(seed)
-    source_counts = franzen_base().with_bounds(
-        smax=max_flux_density
-    ).with_nsources_per_pixel(
-        nsources=1, nside=nside
+    source_counts = (
+        franzen_base()
+        .with_bounds(smax=max_flux_density)
+        .with_nsources_per_pixel(nsources=1, nside=nside)
     )
-    flux_ref = source_counts.sample_fluxes(solid_angle=4*np.pi)
+    flux_ref = source_counts.sample_fluxes(solid_angle=4 * np.pi)
     nsources = len(flux_ref)
     colat, lon = randsphere(nsources)
 
@@ -279,11 +308,12 @@ def make_gleam_like_model(
         "reference_frequency": ref_freq,
         "spectral_index": spectral_index,
         "history": "Load gleam-like sources\n",
-        "frame": 'icrs',
+        "frame": "icrs",
     }
 
     return SkyModel(**gl_model_params)
-    
+
+
 def make_ateam_model() -> SkyModel:
     """Make a SkyModel for sources peeled from GLEAM."""
     # The first 9 sources are peeled from GLEAM (Hurley-Walker+2017)
@@ -370,35 +400,41 @@ def make_ateam_model() -> SkyModel:
         "spectral_index": spectral_index,
         "reference_frequency": reference_frequency,
         "history": "Load sources brighter than 87 Jy at 154 MHz from GLEAM.\n",
-        'frame': 'icrs',
+        "frame": "icrs",
     }
     return SkyModel(**ateam_model_params)
 
+
 def make_ptsrc_model(channels: list[int], nside: int = 256, **kw):
+    """Create a point-source model."""
     # Load GLEAM-like and A-Team SkyModel objects, making them if they do not exist
     # in the default path
-
     if not ATEAM_MODEL_FILE.exists():
         ateam = make_ateam_model()
         ateam.write_skyh5(ATEAM_MODEL_FILE)
     else:
         ateam = SkyModel.from_file(ATEAM_MODEL_FILE)
-        ateam.write_skyh5(ATEAM_MODEL_FILE, clobber=True)  # This keeps it updated for newer versions of pyradiosky
+        ateam.write_skyh5(
+            ATEAM_MODEL_FILE, clobber=True
+        )  # This keeps it updated for newer versions of pyradiosky
 
     gleam_like = make_gleam_like_model(
-        nside=nside, max_flux_density=ateam.stokes[0].min().to_value("Jy"),
-        **kw
+        nside=nside, max_flux_density=ateam.stokes[0].min().to_value("Jy"), **kw
     )
-    
 
     # Evaluate the models at a given frequency
     for fch in channels:
         gleam_like_f = gleam_like.at_frequencies(
-            H4C_FREQS[fch:(fch+1)], freq_interp_kind="cubic", nan_handling="clip", inplace=False,
-
+            H4C_FREQS[fch : (fch + 1)],
+            freq_interp_kind="cubic",
+            nan_handling="clip",
+            inplace=False,
         )
         ateam_f = ateam.at_frequencies(
-            H4C_FREQS[fch:(fch+1)], freq_interp_kind="cubic", nan_handling="clip", inplace=False
+            H4C_FREQS[fch : (fch + 1)],
+            freq_interp_kind="cubic",
+            nan_handling="clip",
+            inplace=False,
         )
 
         # Speactral indexes must be set to None before concatnating.
@@ -412,29 +448,28 @@ def make_ptsrc_model(channels: list[int], nside: int = 256, **kw):
 
 
 def make_confusion_map(
-    freq: Quantity, 
-    nside: int = 256, 
-    smax=0.03, 
-    mean_spectral_index: float = 0.8, 
+    freq: Quantity,
+    nside: int = 256,
+    smax=0.03,
+    mean_spectral_index: float = 0.8,
 ) -> Quantity:
     """Make a confusion map at a given frequency. Output NSIDE=128."""
-    
     source_counts = franzen_base().with_bounds(smin=0, smax=smax)
     kde = source_counts.pixel_flux_distribution(nside=nside, n=10000)
 
-    fluxes = 10**kde.resample(size=hp.nside2npix(nside))
+    fluxes = 10 ** kde.resample(size=hp.nside2npix(nside))
     ref_freq = 154e6 * units.Hz
-    
-    # The spectral indices of each pixel come from a distribution defined by 
+
+    # The spectral indices of each pixel come from a distribution defined by
     # (nu / nu_ref)**-gamma, where gamma is normally distributed. According to
     # https://stats.stackexchange.com/a/335990/81338 and ignoring the second-order
     # terms, this has a mean of the original mean of gamma and variance proportional
     # to the mean -- i.e. we can simply scale all the pixels down by the mean spectral
     # index and we'll get the right mean and variance (to first order).
-    fluxes *= ((freq / ref_freq)**-mean_spectral_index)
+    fluxes *= (freq / ref_freq) ** -mean_spectral_index
 
     # Divde by pixel area to conver to Jy/sr
-    confusion_map = confusion_map / hp.nside2pixarea(nside)
+    confusion_map = fluxes / hp.nside2pixarea(nside)
 
     # Now convert from Jy/sr to kelvin
     confusion_map = (confusion_map * units.Jy / units.sr).to(
@@ -444,10 +479,14 @@ def make_confusion_map(
     return confusion_map
 
 
-def make_gsm_map(freq: Quantity, nside: int = 256, smooth=True, gsm: GlobalSkyModel | None = None) -> Quantity:
-    """Generate a GSM map at a given frequency.
+def make_gsm_map(
+    freq: Quantity, nside: int = 256, smooth=True, gsm: GlobalSkyModel | None = None
+) -> Quantity:
+    """
+    Generate a GSM map at a given frequency.
 
-    Ouput is Galactic coordinates."""
+    Ouput is Galactic coordinates.
+    """
     if gsm is None:
         gsm = GlobalSkyModel(freq_unit=freq.unit)
     else:
@@ -475,7 +514,7 @@ def make_healpix_type_sky_model(
     outframe="icrs",
     to_point=True,
 ) -> SkyModel:
-    """Construct a HEALPix-type SkyModel object given a HEALPix map"""
+    """Construct a HEALPix-type SkyModel object given a HEALPix map."""
     npix = hp.nside2npix(nside)
 
     stokes = np.zeros((4, 1, npix)) * hmap.unit
@@ -542,6 +581,7 @@ def run_make_sky_model(
     dry_run: bool,
     split_freqs: bool = False,
 ):
+    """Run the sky model creation via SLURM."""
     model = f"{sky_model}{nside}"
     out_dir = utils.SKYDIR / f"{model}"
     logdir = utils.LOGDIR / f"skymodel/{model}"
@@ -554,12 +594,15 @@ def run_make_sky_model(
     # Note that click default `slurm_overrride` to (), and we want it to be "2D" tuple
     slurm_override = slurm_override + (
         ("job-name", "{sky_model}-fch{fch:04d}" if split_freqs else sky_model),
-        ("output", "{logdir}/fch{fch:04d}_%J.out" if split_freqs else "{logdir}/%J.out"),
+        (
+            "output",
+            "{logdir}/fch{fch:04d}_%J.out" if split_freqs else "{logdir}/%J.out",
+        ),
     )
 
-    if 'time' not in [x[0] for x in slurm_override]:
+    if "time" not in [x[0] for x in slurm_override]:
         slurm_override = slurm_override + (("time", "0-00:15:00"),)
-        
+
     # Make the SBATCH script minus hera-sim-vis.py command
     program = _get_sbatch_program(gpu=False, slurm_override=slurm_override)
 
@@ -569,7 +612,7 @@ def run_make_sky_model(
     if split_freqs:
         for fch in channels:
             logger.info(f"Working on frequency channel {fch}")
-            
+
             outfile = out_dir / f"fch{fch:04d}.skyh5"
 
             # Check if output file already existed, if clobber is False
@@ -582,7 +625,7 @@ def run_make_sky_model(
             if utils.HPC_CONFIG["slurm"]:
                 # Write job script and submit
                 sbatch_file = sbatch_dir / f"{sky_model}_fch{fch:04d}.sbatch"
-                
+
                 logger.info(f"Creating sbatch file: {sbatch_file}")
                 # Now, join the job script with the hera-sim-vis.py command
                 # and format the job-name
@@ -611,17 +654,17 @@ def run_make_sky_model(
 
         chan_opt = ""
         for g in groups:
-            if len(g)==1:
+            if len(g) == 1:
                 chan_opt += f"--channels {g[0]} "
             else:
                 chan_opt += f"--channels {g[0]}~{g[-1]}"
-        
+
         cmd = f"time python vsim.py sky-model {sky_model} --local --nside {nside} {chan_opt}"
 
         if utils.HPC_CONFIG["slurm"]:
             # Write job script and submit
-            sbatch_file = sbatch_dir/ f"{sky_model}_allfreqs.sbatch"
-            
+            sbatch_file = sbatch_dir / f"{sky_model}_allfreqs.sbatch"
+
             logger.info(f"Creating sbatch file: {sbatch_file}")
             job_script = "\n".join([program, "", cmd, ""]).format(
                 sky_model=sky_model, logdir=logdir
@@ -637,4 +680,3 @@ def run_make_sky_model(
             logger.info(f"Running the simulation locally\nCommand: {cmd}")
             if not dry_run:
                 subprocess.call(cmd.split())
-

@@ -1,11 +1,12 @@
-import click
-import yaml
-import numpy as np
-from typing import Sequence
-from . import utils
+"""Functions for creating obsparam files."""
+
+from functools import cache
 from hashlib import md5
 from pathlib import Path
-from functools import cache
+
+import yaml
+
+from . import utils
 
 H4C_FREQS = utils.FREQS_DICT["H4C"]
 CFGDIR, SKYDIR, OUTDIR = utils.CFGDIR, utils.SKYDIR, utils.OUTDIR
@@ -15,12 +16,15 @@ NTIMES, INTEGRATION, START_TIME = (
     utils.VALIDATION_SIM_START_TIME,
 )
 
-CONTEXT_SETTINGS = dict(help_option_names=["-h", "--help"])
+CONTEXT_SETTINGS = {"help_option_names": ["-h", "--help"]}
 
 
 @cache
-def make_tele_config(freq_interp_kind: str = 'cubic', spline_interp_order: int = 3) -> Path:
-    beampath = utils.HPC_CONFIG['paths']['beams']
+def make_tele_config(
+    freq_interp_kind: str = "cubic", spline_interp_order: int = 3
+) -> Path:
+    """Make a telescope config file."""
+    beampath = utils.HPC_CONFIG["paths"]["beams"]
     config = f"""
 beam_paths:
   0: '{beampath}/NF_HERA_Vivaldi_efield_beam_extrap.fits'
@@ -31,17 +35,19 @@ spline_interp_opts:
         kx: {spline_interp_order}
         ky: {spline_interp_order}
 """
-    
-    fname = CFGDIR / 'teleconfigs' / 'tmp' / f'hera_{freq_interp_kind}_{spline_interp_order}.yaml'
+
+    _fname = f"hera_{freq_interp_kind}_{spline_interp_order}.yaml"
+    fname = CFGDIR / "teleconfigs" / "tmp" / _fname
 
     fname.parent.mkdir(exist_ok=True, parents=True)
-    with open(fname, 'w') as fl:
+    with open(fname, "w") as fl:
         fl.write(config)
 
     return fname
 
+
 def quoted_presenter(dumper, data):
-    """Custom yaml representer for string"""
+    """Represent a string in quotes."""
     return dumper.represent_scalar("tag:yaml.org,2002:str", data, style="'")
 
 
@@ -49,19 +55,21 @@ yaml.add_representer(str, quoted_presenter)
 
 
 def make_hera_obsparam(
-    layout: str | list[int] | Path, 
-    channels: list[int], 
-    sky_model: str, 
-    chunks: int, 
+    layout: str | list[int] | Path,
+    channels: list[int],
+    sky_model: str,
+    chunks: int,
     do_chunks: list[int] | None,
-    freq_interp_kind: str = 'cubic', 
+    freq_interp_kind: str = "cubic",
     spline_interp_order: int = 3,
-    season: str = 'H4C',
+    season: str = "H4C",
     force: bool = False,
 ):
-    """Logic of the h4c cli function.
+    """
+    Logic of the h4c cli function.
 
-    This allow the function to be called from other modules."""
+    This allow the function to be called from other modules.
+    """
     freq_vals = utils.FREQS_DICT[season][channels]
 
     if NTIMES % chunks != 0:
@@ -82,13 +90,12 @@ def make_hera_obsparam(
     else:
         # it's a list of integers specifying antennas
         layout_file = utils.make_hera_layout(
-            name=f"HERA_custom_subset_{md5(str(layout).encode()).hexdigest()}", 
-            ants=layout
+            name=f"HERA_custom_subset_{md5(str(layout).encode()).hexdigest()}",
+            ants=layout,
         )
 
     tele_config_file = make_tele_config(
-        freq_interp_kind=freq_interp_kind, 
-        spline_interp_order=spline_interp_order
+        freq_interp_kind=freq_interp_kind, spline_interp_order=spline_interp_order
     )
 
     obsparams_dir = utils.OBSPDIR / utils.OBSPARAM_DIRFMT.format(
@@ -114,13 +121,17 @@ def make_hera_obsparam(
             obsparams = {
                 "filing": {
                     "outdir": f"{outdir}",
-                    "outfile_name": utils.VIS_FLFMT.format(sky_model=sky_model, fch=fch, ch=ch, layout=layout_file.stem),
+                    "outfile_name": utils.VIS_FLFMT.format(
+                        sky_model=sky_model, fch=fch, ch=ch, layout=layout_file.stem
+                    ),
                     "output_format": "uvh5",
                     "clobber": True,
                 },
                 "freq": {
                     "Nfreqs": 1,
-                    "channel_width": float(utils.FREQS_DICT[season][1] - utils.FREQS_DICT[season][0]),
+                    "channel_width": float(
+                        utils.FREQS_DICT[season][1] - utils.FREQS_DICT[season][0]
+                    ),
                     "start_freq": float(fv),
                 },
                 "sources": {"catalog": f"{SKYDIR}/{sky_model}/fch{fch:04d}.skyh5"},
@@ -138,7 +149,6 @@ def make_hera_obsparam(
                 # This order makes it fastest to put the vis-cpu data back in.
                 "polarization_array": [-5, -7, -8, -6],
             }
-
 
             with open(obsparams_file, "w") as stream:
                 yaml.dump(obsparams, stream, default_flow_style=False, sort_keys=False)
