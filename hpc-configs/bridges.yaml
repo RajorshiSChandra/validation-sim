@@ -1,0 +1,33 @@
+# Template for HPC config for run_sim.py
+# None-number values should be quoted 
+
+paths:
+  beams: "/ocean/projects/phy210034p/sgm/hera-beams/NicolasFagnoniBeams"
+
+conda:
+  # Path will be resolved
+  conda_path: "~/miniconda3"
+  environment_name: "h6c"
+
+module:
+  # List environment modules to load
+  - "openmpi"
+  - "cuda/11.7.1"
+
+slurm:
+  # SLURM SBATCH options, listed as --flag: value
+  # Flags not shown here should work
+  cpu:
+    partition: "RM"  # Name of partition
+    nodes: 1  # Number of nodes
+    mem: "24GB"  # Memory with unit
+    ntasks: 1  # Number of tasks
+    time: "0-00:60:00"  # slurm-aware time string format
+  gpu:
+    partition: "GPU-shared"  # Name of partition
+    nodes: 1                 # Number of nodes
+    mem: "23GB"              # Memory with unit
+    ntasks: 1                # Number of tasks
+    time: "0-00:60:00"       # slurm-aware time string format
+    gres: "gpu:v100-32:1"    # the v100-32 identifier ensures we use the V100 nodes with 32GB
+    

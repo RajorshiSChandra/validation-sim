@@ -2,6 +2,7 @@ config_files/obsparams/*
 *~
 logs/*
 outputs/*
+sky_models/
 sky_models/*.fits
 sky_models/gleam_like/*
 sky_models/ptsrc/*
@@ -11,7 +12,6 @@ sky_models/gsm*/
 sky_models/eor/
 **/.ipynb_checkpoints
 **/__pycache__
-profiling/*
 *.fits
 *.png
 *.pdf
@@ -19,3 +19,7 @@ profiling/*
 test-rechunk-script/*
 *.out
 *.sbatch
+compression-cache/*
+tmp/
+profiles/
+batch_scripts/

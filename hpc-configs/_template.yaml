@@ -1,0 +1,36 @@
+# Template for HPC configuration.
+# Create a file based on this one to set up
+# a particular system.
+
+# The SLURM values below are *defaults*
+# used for any of the scripts in this repo.
+# Generally any particular script will allow
+# you to over-ride the defaults provided here.
+
+paths:
+  beams: "/path/to/hera-beams"
+conda:
+  # Shorten path will be resolved
+  conda_path: "~/miniconda3"
+  environment_name: "h4c"
+module:
+  # List environment modules to load
+  - "openmpi"
+  - "cuda"
+
+slurm:
+
+  # SLURM SBATCH options, listed as --flag: value
+  # Flags not shown here should work
+
+  gpu:
+    partition: "Main"    # Name of partition
+    nodes: 1             # Number of nodes
+    mem: "8GB"           # Memory with unit
+    ntasks: 1            # Number of tasks
+    cpus-per-task: 2     # Number of CPUs per task
+    time: "0-00:30:00"   # slurm-aware time string format
+    gpus: 1              # Number of GPU
+    gres: "gpu:1"        # Some cluster do not support --gpus flag
+  cpu:
+    

@@ -1,0 +1,575 @@
+Timer unit: 1e-09 s
+
+Total time: 671.948 s
+File: /jet/home/sgm/miniconda3/envs/h6c/lib/python3.10/site-packages/hera_sim/visibilities/cli.py
+Function: run_vis_sim at line 88
+
+Line #      Hits         Time  Per Hit   % Time  Line Contents
+==============================================================
+    88                                           def run_vis_sim(args):
+    89         1    1500002.0    2e+06      0.0      cprint(Panel("hera-sim-vis: Simulating Visibilities"))
+    90                                           
+    91         1    3553018.0    4e+06      0.0      logger.info("Initializing VisibilitySimulator object... ")
+    92         1    2677672.0    3e+06      0.0      simulator = load_simulator_from_yaml(args.simulator_config)
+    93         1    3147108.0    3e+06      0.0      logger.info("Finished VisibilitySimulator Init")
+    94                                           
+    95                                               # Make data_model, simulator, and simulation objects
+    96         1    3237688.0    3e+06      0.0      logger.info("Initializing ModelData object... ")
+    97         2        2e+11    9e+10     25.6      data_model = ModelData.from_config(
+    98         1        813.0    813.0      0.0          args.obsparam, normalize_beams=args.normalize_beams
+    99                                               )
+   100         1    3751882.0    4e+06      0.0      logger.info("Finished Setting up ModelData object")
+   101         1   28017385.0    3e+07      0.0      print_sim_config(args.obsparam)
+   102                                           
+   103         1     674053.0 674053.0      0.0      cprint(f"Using {simulator.__class__.__name__} Simulator")
+   104                                           
+   105                                               # Print versions
+   106         2    3636082.0    2e+06      0.0      cprint(
+   107         7       5462.0    780.3      0.0          f"""
+   108                                           [bold]Using the following packages:[/bold]
+   109                                           
+   110         1       3172.0   3172.0      0.0  \tpyuvdata: {pyuvdata.__version__}
+   111         1       1132.0   1132.0      0.0  \tpyuvsim: {pyuvsim.__version__}
+   112         1       1083.0   1083.0      0.0  \tpyradiosky: {pyradiosky.__version__}
+   113         1       1204.0   1204.0      0.0  \thera_sim: {hera_sim.__version__}
+   114         2       2734.0   1367.0      0.0  \t{simulator.__class__.__name__}: {simulator.__version__}
+   115                                           """
+   116                                               )
+   117                                           
+   118         1    2439275.0    2e+06      0.0      cns.print(Rule("Important Simulation Parameters"))
+   119         1     765364.0 765364.0      0.0      cns.print(f"Nfreqs  : {data_model.uvdata.Nfreqs}")
+   120         1  537567169.0    5e+08      0.1      cns.print(f"Ntimes  : {len(data_model.lsts)}")
+   121         1     795598.0 795598.0      0.0      cns.print(f"Npols   : {data_model.uvdata.Npols}")
+   122         1     720958.0 720958.0      0.0      cns.print(f"Nants   : {data_model.uvdata.Nants_data}")
+   123         1     781210.0 781210.0      0.0      cns.print(f"Nsources: {data_model.sky_model.Ncomponents}")
+   124         1     734624.0 734624.0      0.0      cns.print(f"Nbeams  : {data_model.n_beams}")
+   125         1     333484.0 333484.0      0.0      cns.print()
+   126                                           
+   127         1    2175882.0    2e+06      0.0      cns.print(Rule("Large Memory Components"))
+   128         2     829710.0 414855.0      0.0      cns.print(
+   129         1      21201.0  21201.0      0.0          f"Visibility Array  : {data_model.uvdata.data_array.nbytes / 1024**2:.2f} MB"
+   130                                               )
+   131         2      15976.0   7988.0      0.0      beam_array_sizes = [
+   132         1        521.0    521.0      0.0          b.data_array.nbytes for b in data_model.beams if hasattr(b, "data_array")
+   133                                               ]
+   134         1        285.0    285.0      0.0      if beam_array_sizes:
+   135         1     809883.0 809883.0      0.0          cns.print(f"Largest Beam Array: {max(beam_array_sizes) / 1024**2:.2f} MB")
+   136         1     796985.0 796985.0      0.0          cns.print(f"Total Beam Arrays : {sum(beam_array_sizes) / 1024**2:.2f} MB")
+   137                                           
+   138         1   15866899.0    2e+07      0.0      ram = simulator.estimate_memory(data_model)
+   139         1     314892.0 314892.0      0.0      ram_avail = psutil.virtual_memory().available / 1024**3
+   140                                           
+   141         2    1719528.0 859764.0      0.0      cprint(
+   142         3       8895.0   2965.0      0.0          f"[bold {'red' if ram < 1.5*ram_avail else 'green'}] This simulation will use "
+   143         2        529.0    264.5      0.0          f"at least {ram:.2f}GB of RAM (Available: {ram_avail:.2f}GB).[/]"
+   144                                               )
+   145                                           
+   146         1       6521.0   6521.0      0.0      if args.object_name is None:
+   147         1      47722.0  47722.0      0.0          data_model.uvdata.object_name = simulator.__class__.__name__
+   148                                               else:
+   149                                                   data_model.uvdata.object_name = args.object_name
+   150                                           
+   151         1        695.0    695.0      0.0      if args.dry_run:
+   152                                                   cprint("Dry run finished.")
+   153                                                   return
+   154                                           
+   155         1 2490742164.0    2e+09      0.4      simulation = VisibilitySimulation(data_model=data_model, simulator=simulator)
+   156                                           
+   157                                               # Run simulation
+   158         1     393651.0 393651.0      0.0      cprint()
+   159         1    2280924.0    2e+06      0.0      cprint(Rule("Running Simulation"))
+   160         1    3208087.0    3e+06      0.0      logger.info("About to Run Simulation")
+   161         1        5e+11    5e+11     73.6      simulation.simulate()
+   162         1    5166771.0    5e+06      0.0      logger.info("Simulation Complete")
+   163         1    1148122.0    1e+06      0.0      cprint(Rule())
+   164                                           
+   165         1        547.0    547.0      0.0      if myid != 0:  # pragma: no cover
+   166                                                   # Wait for root worker to finish IO before ending all other worker procs
+   167                                                   comm.Barrier()
+   168                                                   sys.exit(0)
+   169                                           
+   170         1       6748.0   6748.0      0.0      if args.run_auto_check:
+   171                                                   # Check imaginary of xx/yy autos and fix non-real values if the option is
+   172                                                   # selected in the arguments
+   173                                                   # xxpol = data_model.uvdata.get_data("xx")
+   174                                                   # auto_idx = data_model.uvdata.ant_1_array == data_model.uvdata.ant_2_array
+   175                                                   # xxpol = xxpol[auto_idx]
+   176                                           
+   177                                                   # max_xx_autos_to_abs = (np.abs(xxpol.imag) / np.abs(xxpol)).max()
+   178                                           
+   179                                                   uvd_autos = data_model.uvdata.select(
+   180                                                       ant_str="auto",
+   181                                                       inplace=False,
+   182                                                       run_check=False,
+   183                                                       run_check_acceptability=False,
+   184                                                       check_extra=False,
+   185                                                   )
+   186                                                   xx = uvd_autos.get_data("xx")
+   187                                                   max_xx_autos_to_abs = (np.abs(xx.imag) / np.abs(xx)).max()
+   188                                                   if 0 < max_xx_autos_to_abs < args.max_auto_imag:
+   189                                                       logger.warning(
+   190                                                           f"[orange]Some autos have very small imaginary components (max ratio "
+   191                                                           f"[blue]{max_xx_autos_to_abs:1.2e}[/])"
+   192                                                       )
+   193                                           
+   194                                                       if args.fix_autos:
+   195                                                           logger.info("Setting the autos to be purely real... ")
+   196                                                           data_model.uvdata._fix_autos()
+   197                                                           logger.info("Done fixing autos.")
+   198                                           
+   199                                                   elif max_xx_autos_to_abs >= args.max_auto_imag:
+   200                                                       raise ValueError(
+   201                                                           f"Some autos have large fractional imaginary components "
+   202                                                           f"(>{args.max_auto_imag:1.2e}). Largest value = "
+   203                                                           f"{np.abs(xx.imag).max():1.2e}, largest fraction="
+   204                                                           f"{max_xx_autos_to_abs:1.2e}."
+   205                                                       )
+   206                                           
+   207         1       3063.0   3063.0      0.0      if args.compress:
+   208         1    3646334.0    4e+06      0.0          logger.info("Compressing data by redundancy... ")
+   209                                                   # Here, we don't call the convenience function directly, because we want to
+   210                                                   # be able to short-circuit the process by reading in a file.
+   211         1     882134.0 882134.0      0.0          if not Path(args.compress).exists():
+   212                                                       red_gps = data_model.uvdata.get_redundancies(
+   213                                                           tol=1.0, include_conjugates=True
+   214                                                       )[0]
+   215                                                       bl_ants = [data_model.uvdata.baseline_to_antnums(gp[0]) for gp in red_gps]
+   216                                                       blt_inds = data_model.uvdata._select_preprocess(
+   217                                                           antenna_nums=None,
+   218                                                           antenna_names=None,
+   219                                                           ant_str=None,
+   220                                                           bls=bl_ants,
+   221                                                           frequencies=None,
+   222                                                           freq_chans=None,
+   223                                                           times=None,
+   224                                                           time_range=None,
+   225                                                           lsts=None,
+   226                                                           lst_range=None,
+   227                                                           polarizations=None,
+   228                                                           blt_inds=None,
+   229                                                           phase_center_ids=None,
+   230                                                           catalog_names=None,
+   231                                                       )[0]
+   232                                           
+   233                                                       np.save(args.compress, blt_inds)
+   234                                                   else:
+   235         1   83659258.0    8e+07      0.0              blt_inds = np.load(args.compress)
+   236                                           
+   237         2 1811354100.0    9e+08      0.3          data_model.uvdata._select_by_index(
+   238         1        649.0    649.0      0.0              blt_inds, None, None, "Compressed by redundancy", keep_all_metadata=True
+   239                                                   )
+   240                                           
+   241         1    3863233.0    4e+06      0.0          logger.info("Done with compression.")
+   242                                           
+   243                                               # Read obsparams to get filing config
+   244         2     778442.0 389221.0      0.0      with open(args.obsparam) as file:
+   245         1   10824398.0    1e+07      0.0          obsparam_dict = yaml.safe_load(file)
+   246         1       3394.0   3394.0      0.0      cfg_filing = obsparam_dict["filing"]
+   247         1      76440.0  76440.0      0.0      base_path = Path(cfg_filing["outdir"])
+   248         1     641266.0 641266.0      0.0      base_path.mkdir(parents=True, exist_ok=True)
+   249         1      43849.0  43849.0      0.0      outfile = base_path / f"{cfg_filing['outfile_name']}.{cfg_filing['output_format']}"
+   250         1       3697.0   3697.0      0.0      clobber = cfg_filing.get("clobber", False)
+   251                                           
+   252                                               # Write output
+   253         1    3795841.0    4e+06      0.0      logger.info("Writing output... ")
+   254         2  282048168.0    1e+08      0.0      data_model.uvdata.write_uvh5(
+   255         1      18705.0  18705.0      0.0          outfile.as_posix(),
+   256         1        207.0    207.0      0.0          clobber=clobber,
+   257         1        218.0    218.0      0.0          run_check=False,
+   258         1        182.0    182.0      0.0          run_check_acceptability=False,
+   259                                               )
+   260         1    3637218.0    4e+06      0.0      logger.info("Done Writing.")
+   261                                           
+   262                                               # Sync with other workers and finalise
+   263         1       1096.0   1096.0      0.0      if HAVE_MPI:
+   264                                                   comm.Barrier()
+   265                                           
+   266         1    1006301.0    1e+06      0.0      cprint("[green][bold]Complete![/][/]")
+
+Total time: 422.357 s
+File: /jet/home/sgm/miniconda3/envs/h6c/lib/python3.10/site-packages/matvis/gpu.py
+Function: simulate at line 99
+
+Line #      Hits         Time  Per Hit   % Time  Line Contents
+==============================================================
+    99                                           @profile
+   100                                           def simulate(
+   101                                               *,
+   102                                               antpos: np.ndarray,
+   103                                               freq: float,
+   104                                               eq2tops: np.ndarray,
+   105                                               crd_eq: np.ndarray,
+   106                                               I_sky: np.ndarray,
+   107                                               beam_list: Sequence[UVBeam | Callable] | None,
+   108                                               polarized: bool = False,
+   109                                               beam_idx: np.ndarray | None = None,
+   110                                               nthreads: int = 1024,
+   111                                               max_memory: int = 2**29,
+   112                                               min_chunks: int = 1,
+   113                                               precision: int = 1,
+   114                                               beam_spline_opts: dict | None = None,
+   115                                           ) -> np.ndarray:
+   116                                               """GPU implementation of the visibility simulator."""
+   117         1       4460.0   4460.0      0.0      if not HAVE_CUDA:
+   118                                                   raise ImportError("You need to install the [gpu] extra to use this function!")
+   119                                           
+   120         1     374838.0 374838.0      0.0      pr = psutil.Process()
+   121         2      20007.0  10003.5      0.0      nax, nfeed, nant, ntimes = _validate_inputs(
+   122         1        349.0    349.0      0.0          precision, polarized, antpos, eq2tops, crd_eq, I_sky
+   123                                               )
+   124                                           
+   125         1        357.0    357.0      0.0      if beam_spline_opts:
+   126         2     147333.0  73666.5      0.0          warnings.warn(
+   127         1        257.0    257.0      0.0              "You have passed beam_spline_opts, but these are not used in GPU.",
+   128         1        183.0    183.0      0.0              stacklevel=1,
+   129                                                   )
+   130                                           
+   131         1       1646.0   1646.0      0.0      nsrc = len(I_sky)
+   132                                           
+   133         1        392.0    392.0      0.0      if precision == 1:
+   134                                                   real_dtype, complex_dtype = np.float32, np.complex64
+   135                                                   cublas_real_mm = cublasSgemm
+   136                                                   cublas_complex_mm = cublasCgemm
+   137                                               else:
+   138         1       1771.0   1771.0      0.0          real_dtype, complex_dtype = np.float64, np.complex128
+   139         1       1861.0   1861.0      0.0          cublas_real_mm = cublasDgemm
+   140         1        430.0    430.0      0.0          cublas_complex_mm = cublasZgemm
+   141                                           
+   142         1       1380.0   1380.0      0.0      DTYPE, CDTYPE = TYPE_MAP[real_dtype], TYPE_MAP[complex_dtype]
+   143                                           
+   144                                               # apply scalars so 1j*tau*freq is the correct exponent
+   145         1       4079.0   4079.0      0.0      ang_freq = 2 * freq * np.pi
+   146                                           
+   147                                               # ensure data types
+   148         1      26744.0  26744.0      0.0      antpos = antpos.astype(real_dtype)
+   149         1      13744.0  13744.0      0.0      eq2tops = eq2tops.astype(real_dtype)
+   150         1    3831329.0    4e+06      0.0      crd_eq = crd_eq.astype(real_dtype)
+   151         1    2897832.0    3e+06      0.0      Isqrt = np.sqrt(0.5 * I_sky).astype(real_dtype)
+   152                                           
+   153         2  118572118.0    6e+07      0.0      beam_list, nbeam, beam_idx = _wrangle_beams(
+   154         1        202.0    202.0      0.0          beam_idx=beam_idx,
+   155         1        638.0    638.0      0.0          beam_list=beam_list,
+   156         1        300.0    300.0      0.0          polarized=polarized,
+   157         1        348.0    348.0      0.0          nant=nant,
+   158         1        145.0    145.0      0.0          freq=freq,
+   159                                               )
+   160                                           
+   161         2      16891.0   8445.5      0.0      total_beam_pix = sum(
+   162                                                   beam.data_array.shape[-2] * beam.data_array.shape[-1]
+   163         1        153.0    153.0      0.0          for beam in beam_list
+   164                                                   if hasattr(beam, "data_array")
+   165                                               )
+   166                                           
+   167         2       1633.0    816.5      0.0      nchunks = min(
+   168         2       2164.0   1082.0      0.0          max(
+   169         1        139.0    139.0      0.0              min_chunks,
+   170         2    4919336.0    2e+06      0.0              _get_required_chunks(
+   171         1        320.0    320.0      0.0                  nax, nfeed, nant, nsrc, nbeam, total_beam_pix, precision
+   172                                                       ),
+   173                                                   ),
+   174         1        170.0    170.0      0.0          nsrc,
+   175                                               )
+   176                                           
+   177         1        843.0    843.0      0.0      npixc = nsrc // nchunks
+   178                                           
+   179         1       1171.0   1171.0      0.0      use_uvbeam = isinstance(beam_list[0], UVBeam)
+   180         1       7785.0   7785.0      0.0      if use_uvbeam and not all(isinstance(b, UVBeam) for b in beam_list):
+   181                                                   raise ValueError(
+   182                                                       "gpu.simulate only support beam_lists with either all UVBeam or all AnalyticBeam objects."
+   183                                                   )
+   184                                           
+   185         1       4192.0   4192.0      0.0      cuda_params = {
+   186         1        173.0    173.0      0.0          "NANT": nant,
+   187         1        165.0    165.0      0.0          "NAX": nax,
+   188         1        164.0    164.0      0.0          "NFEED": nfeed,
+   189         1        170.0    170.0      0.0          "NBEAM": nbeam,
+   190         1        289.0    289.0      0.0          "DTYPE": DTYPE,
+   191         1        257.0    257.0      0.0          "CDTYPE": CDTYPE,
+   192         1        383.0    383.0      0.0          "f": "f" if precision == 1 else "",
+   193                                               }
+   194                                           
+   195         1        189.0    189.0      0.0      if use_uvbeam:
+   196                                                   # We need to make sure that each beam "raw" data is on the same grid.
+   197                                                   # There is no advantage to using any other resolution but the native raw
+   198                                                   # resolution, which is what is returned by default. This may not be the case
+   199                                                   # if we were to use higher-order splines in the initial interpolation from
+   200                                                   # UVBeam. Eg. if "cubic" interpolation was shown to be better than linear,
+   201                                                   # we might want to do cubic interpolation with pyuvbeam onto a much higher-res
+   202                                                   # grid, then use linear interpolation on the GPU with that high-res grid.
+   203                                                   # We can explore this later...
+   204         1    2029828.0    2e+06      0.0          d0, daz, dza = uvbeam_to_azza_grid(beam_list[0])
+   205         1       4776.0   4776.0      0.0          naz = 2 * np.pi / daz + 1
+   206         1     155216.0 155216.0      0.0          assert np.isclose(int(naz), naz)
+   207                                           
+   208         1       1008.0   1008.0      0.0          raw_beam_data = [d0]
+   209         1        881.0    881.0      0.0          if len(beam_list) > 1:
+   210                                                       raw_beam_data.extend(
+   211                                                           uvbeam_to_azza_grid(b, naz=int(naz), dza=dza)[0] for b in beam_list[1:]
+   212                                                       )
+   213                                               else:
+   214                                                   daz, dza = None, None
+   215                                           
+   216                                               # Setup the GPU code and arrays
+   217         1     257191.0 257191.0      0.0      meas_eq_code = MeasEqTemplate.render(**cuda_params)
+   218                                           
+   219         1        352.0    352.0      0.0      if use_uvbeam:
+   220         2     193182.0  96591.0      0.0          beam_interp_code = BeamInterpTemplate.render(
+   221         3       2479.0    826.3      0.0              **{
+   222         1        181.0    181.0      0.0                  **cuda_params,
+   223         1       2333.0   2333.0      0.0                  **{
+   224         1        208.0    208.0      0.0                      "NBEAM": nbeam,
+   225         1       1900.0   1900.0      0.0                      "BEAM_N_AZ": raw_beam_data[0].shape[-1],
+   226         1       1207.0   1207.0      0.0                      "BEAM_N_ZA": raw_beam_data[0].shape[-2],
+   227         1        220.0    220.0      0.0                      "DAZ": daz,
+   228         1        177.0    177.0      0.0                      "DZA": dza,
+   229                                                           },
+   230                                                       }
+   231                                                   )
+   232         1  271701008.0    3e+08      0.1          beam_interp_module = compiler.SourceModule(beam_interp_code)
+   233         1     209811.0 209811.0      0.0          beam_interp = beam_interp_module.get_function("InterpolateBeamAltAz")
+   234                                               else:
+   235                                                   beam_interp = None
+   236                                           
+   237         1  189427655.0    2e+08      0.0      meas_eq_module = compiler.SourceModule(meas_eq_code)
+   238         1      64663.0  64663.0      0.0      meas_eq = meas_eq_module.get_function("MeasEq")
+   239                                               # vis_inner_product = meas_eq_module.get_function("VisInnerProduct")
+   240                                           
+   241         2    6836797.0    3e+06      0.0      logger.info(
+   242         5      11707.0   2341.4      0.0          f"""
+   243                                                   Measurement Equation Kernel Properties:
+   244         1      37763.0  37763.0      0.0              SHARED: {meas_eq.shared_size_bytes}
+   245         1       8402.0   8402.0      0.0              LOCAL: {meas_eq.local_size_bytes}
+   246         1       7419.0   7419.0      0.0              REGISTERS: {meas_eq.num_regs}
+   247         1       8506.0   8506.0      0.0              MAX_THREADS_PER_BLOCK: {meas_eq.max_threads_per_block}
+   248                                                   """
+   249                                               )
+   250                                           
+   251                                               # bm_texref = gpu_module.get_texref("bm_tex")
+   252         1    2263764.0    2e+06      0.0      h = cublasCreate()  # handle for managing cublas
+   253                                           
+   254                                               # define GPU buffers and transfer initial values
+   255                                               # never changes, transpose happens in copy so cuda bm_tex is (BEAM_PX,BEAM_PX,NANT)
+   256                                               # bm_texref.set_array(numpy3d_to_array(beams))
+   257         1     419445.0 419445.0      0.0      antpos_gpu = gpuarray.to_gpu(antpos)  # never changes, set to -2*pi*antpos/c
+   258         1     195197.0 195197.0      0.0      beam_idx = gpuarray.to_gpu(beam_idx.astype(np.uint))
+   259         1     296462.0 296462.0      0.0      Isqrt_gpu = gpuarray.empty(shape=(npixc,), dtype=real_dtype)
+   260                                           
+   261                                               # Send the regular-grid beam data to the GPU. This has dimensions (Nbeam, Nax, Nfeed, Nza, Nza)
+   262                                               # Note that Nbeam is not in general equal to Nant (we can have multiple antennas with
+   263                                               # the same beam).
+   264         1        288.0    288.0      0.0      if use_uvbeam:
+   265         2    1487490.0 743745.0      0.0          beam_data_gpu = gpuarray.to_gpu(
+   266         1     879501.0 879501.0      0.0              np.array(raw_beam_data, dtype=complex_dtype if polarized else real_dtype),
+   267                                                   )
+   268                                               else:
+   269                                                   beam_data_gpu = None
+   270                                           
+   271                                               # will be set on GPU by bm_interp
+   272         1     363465.0 363465.0      0.0      crd_eq_gpu = gpuarray.empty(shape=(3, npixc), dtype=real_dtype)
+   273                                               # sent from CPU each time
+   274         1      59841.0  59841.0      0.0      eq2top_gpu = gpuarray.empty(shape=(3, 3), dtype=real_dtype)
+   275                                               # will be set on GPU
+   276         1     235846.0 235846.0      0.0      crdtop_gpu = gpuarray.empty(shape=(3, npixc), dtype=real_dtype)
+   277                                               # will be set on GPU
+   278         2     265215.0 132607.5      0.0      matvis_gpus = [
+   279                                                   gpuarray.empty(shape=(nfeed * nant, nfeed * nant), dtype=complex_dtype)
+   280         1       1638.0   1638.0      0.0          for _ in range(nchunks)
+   281                                               ]
+   282                                           
+   283                                               # output CPU buffers for downloading answers
+   284         2    1094743.0 547371.5      0.0      matvis_cpus = [
+   285                                                   np.zeros(shape=(nfeed * nant, nfeed * nant), dtype=complex_dtype)
+   286         1       1505.0   1505.0      0.0          for _ in range(nchunks)
+   287                                               ]
+   288         1      67151.0  67151.0      0.0      streams = [driver.Stream() for _ in range(nchunks)]
+   289         1       3861.0   3861.0      0.0      event_order = [
+   290                                                   "start",
+   291                                                   "upload",
+   292                                                   "eq2top",
+   293                                                   "tau",
+   294                                                   "meas_eq",
+   295                                                   "vis",
+   296                                                   "end",
+   297                                               ]
+   298                                           
+   299         1        315.0    315.0      0.0      if use_uvbeam:
+   300         1       2501.0   2501.0      0.0          event_order.insert(4, "interpolation")
+   301                                           
+   302         1 1292211115.0    1e+09      0.3      vis = np.full((ntimes, nfeed * nant, nfeed * nant), 0.0, dtype=complex_dtype)
+   303                                           
+   304         1    3956172.0    4e+06      0.0      logger.info(f"Running With {nchunks} chunks")
+   305                                           
+   306         1        690.0    690.0      0.0      report_chunk = ntimes // 100 + 1
+   307         1     175792.0 175792.0      0.0      pr = psutil.Process()
+   308         1       2076.0   2076.0      0.0      tstart = time.time()
+   309         1      70719.0  70719.0      0.0      mlast = pr.memory_info().rss
+   310         1        231.0    231.0      0.0      plast = tstart
+   311                                           
+   312       721    1560368.0   2164.2      0.0      for t in range(ntimes):
+   313       720  111225312.0 154479.6      0.0          eq2top_gpu.set(eq2tops[t])  # defines sky orientation for this time step
+   314       720   49654408.0  68964.5      0.0          events = [{e: driver.Event() for e in event_order} for _ in range(nchunks)]
+   315                                           
+   316      1440   20499873.0  14236.0      0.0          for c, (stream, event) in enumerate(zip(streams, events)):
+   317       720    6456223.0   8967.0      0.0              event["start"].record(stream)
+   318       720 3127308393.0    4e+06      0.7              crd_eq_gpu.set_async(crd_eq[:, c * npixc : (c + 1) * npixc], stream=stream)
+   319       720 1118596549.0    2e+06      0.3              Isqrt_gpu.set_async(Isqrt[c * npixc : (c + 1) * npixc], stream=stream)
+   320       720    7948294.0  11039.3      0.0              event["upload"].record(stream)
+   321                                           
+   322       720   81566000.0 113286.1      0.0              cublasSetStream(h, stream.handle)
+   323                                           
+   324                                                       # cublas arrays are in Fortran order, so P=M*N is actually
+   325                                                       # peformed as P.T = N.T * M.T
+   326      1440  140639829.0  97666.5      0.0              cublas_real_mm(  # compute crdtop = dot(eq2top,crd_eq)
+   327       720     212402.0    295.0      0.0                  h,
+   328       720     243948.0    338.8      0.0                  "n",
+   329       720     240285.0    333.7      0.0                  "n",
+   330       720     269410.0    374.2      0.0                  npixc,
+   331       720     186581.0    259.1      0.0                  3,
+   332       720     204755.0    284.4      0.0                  3,
+   333       720     457673.0    635.7      0.0                  1.0,
+   334       720     794683.0   1103.7      0.0                  crd_eq_gpu.gpudata,
+   335       720     335572.0    466.1      0.0                  npixc,
+   336       720     572742.0    795.5      0.0                  eq2top_gpu.gpudata,
+   337       720     285756.0    396.9      0.0                  3,
+   338       720     373760.0    519.1      0.0                  0.0,
+   339       720     516609.0    717.5      0.0                  crdtop_gpu.gpudata,
+   340       720     131391.0    182.5      0.0                  npixc,
+   341                                                       )
+   342       720    5050443.0   7014.5      0.0              event["eq2top"].record(stream)
+   343                                           
+   344       720 3009223939.0    4e+06      0.7              tx, ty, tz = crdtop_gpu.get_async(stream=stream)
+   345       720  616726798.0 856565.0      0.1              above_horizon = tz > 0
+   346       720 3101566911.0    4e+06      0.7              tx = tx[above_horizon]
+   347       720 3078620639.0    4e+06      0.7              ty = ty[above_horizon]
+   348       720    2637057.0   3662.6      0.0              nsrcs_up = len(tx)
+   349                                           
+   350       720     756478.0   1050.7      0.0              if nsrcs_up < 1:
+   351                                                           continue
+   352                                           
+   353      1440        1e+10    7e+06      2.5              crdtop_lim_gpu = gpuarray.to_gpu_async(
+   354       720        1e+10    2e+07      2.8                  crdtop_gpu.get_async(stream=stream)[:, above_horizon].copy(),
+   355       720     919650.0   1277.3      0.0                  stream=stream,
+   356                                                       )
+   357                                           
+   358       720 2032344111.0    3e+06      0.5              tau_gpu = gpuarray.empty(shape=(nant, nsrcs_up), dtype=real_dtype)
+   359                                           
+   360      1440  112829097.0  78353.5      0.0              cublas_real_mm(  # compute tau = dot(antpos,crdtop) / speed_of_light
+   361       720     279896.0    388.7      0.0                  h,
+   362       720     344498.0    478.5      0.0                  "n",
+   363       720     155697.0    216.2      0.0                  "n",
+   364       720     165278.0    229.6      0.0                  nsrcs_up,
+   365       720     272560.0    378.6      0.0                  nant,
+   366       720     169888.0    236.0      0.0                  3,
+   367       720     577467.0    802.0      0.0                  ONE_OVER_C,
+   368       720     387722.0    538.5      0.0                  crdtop_lim_gpu.gpudata,
+   369       720     143833.0    199.8      0.0                  nsrcs_up,
+   370       720     498642.0    692.6      0.0                  antpos_gpu.gpudata,
+   371       720     138426.0    192.3      0.0                  3,
+   372       720     331830.0    460.9      0.0                  0.0,
+   373       720     187729.0    260.7      0.0                  tau_gpu.gpudata,
+   374       720     119790.0    166.4      0.0                  nsrcs_up,
+   375                                                       )
+   376       720    8049641.0  11180.1      0.0              event["tau"].record(stream)
+   377                                           
+   378                                                       # Need to do this in polar coordinates, NOT (l,m), at least for
+   379                                                       # polarized beams. This is because at zenith, the Efield components are
+   380                                                       # discontinuous (in power they are continuous). When interpolating the
+   381                                                       # E-field components, you need to treat the zenith point differently
+   382                                                       # depending on which "side" of zenith you're on. This is doable in polar
+   383                                                       # coordinates, but not in Cartesian coordinates.
+   384      1440        2e+10    2e+07      5.6              A_gpu = do_beam_interpolation(
+   385       720     339571.0    471.6      0.0                  freq,
+   386       720     363690.0    505.1      0.0                  beam_list,
+   387       720     234658.0    325.9      0.0                  polarized,
+   388       720     237405.0    329.7      0.0                  nthreads,
+   389       720     253767.0    352.5      0.0                  nax,
+   390       720     233249.0    324.0      0.0                  nfeed,
+   391       720     309378.0    429.7      0.0                  complex_dtype,
+   392       720     295923.0    411.0      0.0                  nbeam,
+   393       720     219643.0    305.1      0.0                  use_uvbeam,
+   394       720     193105.0    268.2      0.0                  daz,
+   395       720     261032.0    362.5      0.0                  dza,
+   396       720     433844.0    602.6      0.0                  beam_interp,
+   397       720     338120.0    469.6      0.0                  beam_data_gpu,
+   398       720     264998.0    368.1      0.0                  event,
+   399       720     205980.0    286.1      0.0                  stream,
+   400       720     282430.0    392.3      0.0                  tx,
+   401       720     223178.0    310.0      0.0                  ty,
+   402       720     118863.0    165.1      0.0                  nsrcs_up,
+   403                                                       )
+   404                                           
+   405      1440 8373401795.0    6e+06      2.0              v_gpu = gpuarray.empty(
+   406       720    2678462.0   3720.1      0.0                  shape=(nfeed * nant, nax * nsrcs_up), dtype=complex_dtype
+   407                                                       )
+   408      1440 2524714925.0    2e+06      0.6              Isqrt_lim_gpu = gpuarray.to_gpu_async(
+   409       720 4726882022.0    7e+06      1.1                  Isqrt_gpu.get()[above_horizon].copy(), stream=stream
+   410                                                       )
+   411                                           
+   412       720    7256881.0  10079.0      0.0              _logdebug(A_gpu, "Beam")
+   413                                           
+   414                                                       # compute v = A * sqrtI * exp(1j*tau*freq)
+   415                                                       # Ways to block up threads for sending to GPU calculations. "Meas" is for the
+   416                                                       # measurement equation function, and "prod" is for the inner-product calculation.
+   417       720   15774827.0  21909.5      0.0              block, grid = _get_3d_block_grid(nthreads, nsrcs_up, nant * nax, nfeed)
+   418                                           
+   419       720     550431.0    764.5      0.0              if t == 0:
+   420         2    5348244.0    3e+06      0.0                  logger.info(
+   421         1     103761.0 103761.0      0.0                      f"Using {block} = {np.prod(block)} threads in total, in a grid of {grid}, "
+   422                                                               "for measurement equation."
+   423                                                           )
+   424                                           
+   425      1440  107279819.0  74499.9      0.0              meas_eq(
+   426       720     182074.0    252.9      0.0                  A_gpu,
+   427       720     257780.0    358.0      0.0                  Isqrt_lim_gpu,
+   428       720     260123.0    361.3      0.0                  tau_gpu,
+   429       720     270649.0    375.9      0.0                  ang_freq,
+   430       720    8329436.0  11568.7      0.0                  np.uint(nsrcs_up),
+   431       720     337692.0    469.0      0.0                  beam_idx,
+   432       720     174850.0    242.8      0.0                  v_gpu,
+   433       720     294520.0    409.1      0.0                  grid=grid,
+   434       720     209649.0    291.2      0.0                  block=block,
+   435       720     123098.0    171.0      0.0                  stream=stream,
+   436                                                       )
+   437       720    7150710.0   9931.5      0.0              event["meas_eq"].record(stream)
+   438                                           
+   439       720    2206548.0   3064.7      0.0              _logdebug(v_gpu, "vant")
+   440                                           
+   441                                                       # compute vis = dot(v, v.T)
+   442                                                       # We want to take an outer product over feeds/antennas, contract over
+   443                                                       # E-field components, and integrate over the sky.
+   444                                                       # Remember cublas is in fortran order...
+   445                                                       # v_gpu is (nfeed * nant, nax * nsrcs_up)
+   446      1440  170321917.0 118279.1      0.0              cublas_complex_mm(
+   447       720     253488.0    352.1      0.0                  h,
+   448       720     183239.0    254.5      0.0                  "c",  # conjugate transpose for first (remember fortran order)
+   449       720     208008.0    288.9      0.0                  "n",  # no transpose for second.
+   450       720    1151244.0   1599.0      0.0                  nfeed * nant,
+   451       720     968440.0   1345.1      0.0                  nfeed * nant,
+   452       720    1007289.0   1399.0      0.0                  nax * nsrcs_up,
+   453       720     233881.0    324.8      0.0                  1.0,
+   454       720     227774.0    316.4      0.0                  v_gpu.gpudata,
+   455       720     949531.0   1318.8      0.0                  nax * nsrcs_up,
+   456       720     158627.0    220.3      0.0                  v_gpu.gpudata,
+   457       720     919602.0   1277.2      0.0                  nax * nsrcs_up,
+   458       720     272791.0    378.9      0.0                  0.0,
+   459       720     622677.0    864.8      0.0                  matvis_gpus[c].gpudata,
+   460       720     966488.0   1342.3      0.0                  nfeed * nant,
+   461                                                       )
+   462                                           
+   463       720    2603631.0   3616.2      0.0              _logdebug(matvis_gpus[c], "Vis")
+   464                                           
+   465       720    5289734.0   7346.9      0.0              event["vis"].record(stream)
+   466                                           
+   467       720        3e+11    5e+08     79.8              matvis_gpus[c].get(ary=matvis_cpus[c], stream=stream)
+   468       720   14726427.0  20453.4      0.0              event["end"].record(stream)
+   469       720    6668147.0   9261.3      0.0          events[nchunks - 1]["end"].synchronize()
+   470       720 2200084725.0    3e+06      0.5          vis[t] = sum(matvis_cpus)
+   471                                           
+   472       720    2583830.0   3588.7      0.0          if not (t % report_chunk or t == ntimes - 1):
+   473        90  817868524.0    9e+06      0.2              plast, mlast = _log_progress(tstart, plast, t + 1, ntimes, pr, mlast)
+   474                                           
+   475                                               # teardown GPU configuration
+   476         1    4023956.0    4e+06      0.0      cublasDestroy(h)
+   477         1 1749435220.0    2e+09      0.4      vis = vis.conj().reshape((ntimes, nfeed, nant, nfeed, nant))
+   478         1      27940.0  27940.0      0.0      return vis.transpose((0, 1, 3, 2, 4)) if polarized else vis[:, 0, :, 0, :]
+
