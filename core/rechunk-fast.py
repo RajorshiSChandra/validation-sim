@@ -8,18 +8,18 @@ Output files have the following prototype:
     zen.LST.{lst:.7f}[.{sky_cmp}].uvh5
 """
 import argparse
-import os
 import logging
+import os
 from collections import Counter
+from functools import partial
+from multiprocessing import Pool, cpu_count, shared_memory
+from pathlib import Path
 
 import h5py
 import numpy as np
 import psutil
-from pyuvdata.uvdata.uvh5 import FastUVH5Meta
-from pathlib import Path
 from hera_cli_tools import parse_args, run_with_profiling
-from multiprocessing import shared_memory, Pool, cpu_count
-from functools import partial
+from pyuvdata.uvdata.uvh5 import FastUVH5Meta
 
 logger = logging.getLogger("rechunk")
 ps = psutil.Process()
@@ -33,6 +33,7 @@ def find_all_files(
     assume_blt_layout: bool = False,
     is_rectangular: bool | None = None,
 ):
+    """Find all the files that need to be read to be chunked."""
     all_files = {}
     for ch in channels:
         all_files[ch] = {}
@@ -94,19 +95,21 @@ def find_all_files(
 def get_file_time_slices(
     meta_list: list[FastUVH5Meta], lsts_per_chunk: int, lst_wrap: float
 ):
+    """Get the time slices in each file that need to be taken."""
     dlst = -1
     i = 0
     while dlst < 0:
         dlst = meta_list[0].lsts[i + 1] - meta_list[0].lsts[i]
         i += 1
 
-    for fl_index, meta in enumerate(meta_list):
+    for i, meta in enumerate(meta_list):
         if meta.lsts[0] > (lst_wrap + dlst):
             continue
         elif meta.lsts[-1] < lst_wrap:
             continue
         else:
             time_index = np.argwhere(meta.lsts >= lst_wrap).flatten()[0]
+            fl_index = i
             break
 
     Ntimes = meta_list[0].Ntimes
@@ -144,6 +147,7 @@ def get_file_time_slices(
 
 
 def reset_time_arrays(uvd, meta, times, lsts, ras, pas, slc, time_first):
+    """Update UVData metadata to new times."""
     nt = slc.stop - (slc.start or 0)
 
     if nt != uvd.Ntimes:
@@ -192,6 +196,7 @@ def chunk_files(
     is_rectangular: bool | None = None,
     max_freq_chunk_size: int = 100000000,
 ):
+    """Chunk given files."""
     # Load the read files, and check that the read prototype is valid if provided.
     raw_files = find_all_files(
         base_dir,
@@ -315,7 +320,7 @@ def chunk_files(
             name="FULLDSET",
         )
 
-    for outfile_index, chunk_slices in enumerate(chunk_slices):
+    for outfile_index, this_chunk_slices in enumerate(chunk_slices):
         logger.info(f"Creating data for file {outfile_index + 1}")
         # Update the metadata for this chunk.
         time_slice = slice(
@@ -350,7 +355,9 @@ def chunk_files(
             raw_file_paths = {ch: [f.path for f in raw_files[ch]] for ch in channels}
 
             for freq_chunk in range(nfreq_chunks):
-                logger.info(f"Obtaining frequency chunk {freq_chunk+1}/{nfreq_chunks}...")
+                logger.info(
+                    f"Obtaining frequency chunk {freq_chunk+1}/{nfreq_chunks}..."
+                )
                 freq_slice = slice(
                     freq_chunk * nfreqs, min((freq_chunk + 1) * nfreqs, uvd.Nfreqs)
                 )
@@ -363,7 +370,7 @@ def chunk_files(
                     partial(
                         write_freq_chunk,
                         ntimes=uvd.Ntimes,
-                        chunk_slices=chunk_slices,
+                        chunk_slices=this_chunk_slices,
                         nbls=uvd.Nbls,
                         raw_files=raw_file_paths,
                         time_first=time_first,
@@ -401,6 +408,7 @@ def write_freq_chunk(
     start_index,
     DTYPE,
 ):
+    """Write out a particular frequency chunk to file."""
     ntimes_left = ntimes
     nblts_so_far = 0
     ch = channels[ich]
@@ -435,10 +443,6 @@ def write_freq_chunk(
         ntimes_left -= this_ntimes
         nblts_so_far += this_nblts
 
-    # shm.close()
-
-
-#    shm.unlink()
 
 if __name__ == "__main__":
     # set_start_method('forkserver')
