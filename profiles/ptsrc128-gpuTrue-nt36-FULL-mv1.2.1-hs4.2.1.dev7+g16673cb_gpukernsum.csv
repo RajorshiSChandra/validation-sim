@@ -1,0 +1,10 @@
+Time (%),Total Time (ns),Instances,Avg (ns),Med (ns),Min (ns),Max (ns),StdDev (ns),Name
+92.1,53198736562,480,110830701.2,110903727.0,109087670,123127825,949831.9,volta_zgemm_64x32_cn
+7.4,4265944735,480,8887384.9,8951952.0,7844312,9085889,131330.6,MeasEq
+0.4,247519238,480,515665.1,562605.5,387326,589149,71035.8,volta_dgemm_128x64_nn
+0.0,25688746,960,26759.1,26591.5,24608,33376,891.8,InterpolateBeamAltAz
+0.0,12993070,480,27068.9,27168.0,25408,29024,764.4,axpbyz
+0.0,10742561,480,22380.3,22305.0,21664,27008,411.6,"void gemmSN_NN_kernel<double, (int)128, (int)2, (int)4, (int)8, (int)3, (int)4, (bool)0, cublasGemvTensorStridedBatched<const double>, cublasGemvTensorStridedBatched<const double>, cublasGemvTensorStridedBatched<double>>(cublasGemmSmallNParams<T9, T10, T11, T1>)"
+0.0,8276255,480,17242.2,16896.0,14209,20928,1665.3,axpb
+0.0,7089234,480,14769.2,14752.0,12480,15904,306.7,real
+0.0,5342559,480,11130.3,11072.0,10336,14976,534.6,imag
