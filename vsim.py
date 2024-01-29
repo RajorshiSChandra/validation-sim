@@ -129,6 +129,7 @@ def sky_model(
     type=str,
     help="Channels to use, e.g. '0~1536'. If not given, all channels are used.",
 )
+@_cli.opts.layout
 @_cli.opts.log_level
 @_cli.opts.dry_run
 @_cli.opts.slurm_override
@@ -144,6 +145,7 @@ def cornerturn(
     direc: Path | None,
     channels: str | None,
     log_level: str,
+    layout: str,
 ):
     """Perform a cornerturn on simulation files.
 
@@ -163,14 +165,16 @@ def cornerturn(
 
     if direc is None:
         simdir = utils.OUTDIR / utils.VIS_DIRFMT.format(
-            sky_model=sky_model, chunks=nchunks_sim
+            sky_model=sky_model, chunks=nchunks_sim, layout=layout
         )
     else:
         simdir = Path(direc)
 
     outdir = (
         utils.OUTDIR
-        / utils.VIS_DIRFMT.format(sky_model=sky_model, chunks=nchunks_sim)
+        / utils.VIS_DIRFMT.format(
+            sky_model=sky_model, chunks=nchunks_sim, layout=layout
+        )
         / "rechunk"
     )
     outdir.mkdir(parents=True, exist_ok=True)
