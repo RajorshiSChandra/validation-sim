@@ -129,6 +129,7 @@ def sky_model(
     type=str,
     help="Channels to use, e.g. '0~1536'. If not given, all channels are used.",
 )
+@_cli.opts.log_level
 @_cli.opts.dry_run
 @_cli.opts.slurm_override
 def cornerturn(
@@ -142,6 +143,7 @@ def cornerturn(
     remove_cross_pols: bool,
     direc: Path | None,
     channels: str | None,
+    log_level: str,
 ):
     """Perform a cornerturn on simulation files.
 
@@ -152,6 +154,8 @@ def cornerturn(
     Output files have the following prototype:
         zen.LST.{lst:.7f}[.{sky_cmp}].uvh5
     """
+    logger.setLevel(log_level)
+
     # Make sure that the slurm log directory exists.
     # Otherwise, the job will terminate
     log_dir = Path(f"logs/chunk/{sky_model}")
@@ -202,6 +206,7 @@ def cornerturn(
     --nthreads 16 \
     {conjugate} \
     {remove_cross_pols} \
+    --log-level {log_level} \
     {simdir} \
     {outdir} \
     """
@@ -218,3 +223,7 @@ def cornerturn(
         subprocess.call(f"sbatch {sbatch_file}".split())
 
     logger.debug(f"\n===Job Script===\n{sbatch}\n===END===\n")
+
+
+if __name__ == "__main__":
+    cli()

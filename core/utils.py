@@ -1,18 +1,13 @@
 """Some common utilities used throughout the core modules."""
 
+import logging
 from os import environ
 from pathlib import Path
 
 import numpy as np
 import yaml
 
-HPC = environ.get("VALIDATION_SYSTEM_NAME")
-
-if HPC is None:
-    raise OSError(
-        "You must set the VALIDATION_SYSTEM_NAME environment variable to your system "
-        "name, corresponding to a file in hpc-configs."
-    )
+logger = logging.getLogger(__name__)
 
 # These paths and variables define some of the default directories and shared
 # config files for H4C validation simulations
@@ -38,8 +33,17 @@ VIS_FLFMT = FLFMT
 
 COMPRESS_FMT = "ch{chunks}_{layout_file}.npy"
 
-with open(HPCDIR / f"{HPC}.yaml") as fl:
-    HPC_CONFIG = yaml.load(fl, Loader=yaml.FullLoader)
+HPC = environ.get("VALIDATION_SYSTEM_NAME")
+
+if HPC is None:
+    logger.warn(
+        "You must set the VALIDATION_SYSTEM_NAME environment variable to your system "
+        "name, corresponding to a file in hpc-configs. Assuming local system.",
+    )
+    HPC_CONFIG = None
+else:
+    with open(HPCDIR / f"{HPC}.yaml") as fl:
+        HPC_CONFIG = yaml.load(fl, Loader=yaml.FullLoader)
 
 LAYOUTDIR = CFGDIR / "array_layouts"
 
