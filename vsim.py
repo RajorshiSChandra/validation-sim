@@ -123,6 +123,12 @@ def sky_model(
     default=None,
     type=click.Path(exists=True, dir_okay=True, file_okay=False),
 )
+@click.option(
+    "--channels",
+    default=None,
+    type=str,
+    help="Channels to use, e.g. '0~1536'. If not given, all channels are used.",
+)
 @_cli.opts.dry_run
 @_cli.opts.slurm_override
 def cornerturn(
@@ -135,6 +141,7 @@ def cornerturn(
     conjugate: bool,
     remove_cross_pols: bool,
     direc: Path | None,
+    channels: str | None,
 ):
     """Perform a cornerturn on simulation files.
 
@@ -167,26 +174,28 @@ def cornerturn(
             sky_model=sky_model, chunks=nchunks_sim
         )
     else:
-        simdir = direc
+        simdir = Path(direc)
 
     outdir = simdir / "rechunk"
     outdir.mkdir(parents=True, exist_ok=True)
 
-    if conjugate:
-        conjugate = "--conjugate"
-    else:
-        conjugate = ""
+    conjugate = "--conjugate" if conjugate else ""
+    remove_cross_pols = "--remove-cross-pols" if remove_cross_pols else ""
 
-    if remove_cross_pols:
-        remove_cross_pols = "--remove-cross-pols"
-    else:
-        remove_cross_pols = ""
+    if channels is None:
+        allfiles = sorted(
+            simdir.glob(f"{sky_model}_fch????_nt17280_chunk${time_chunk}.uvh5")
+        )
+        maxchan = int(allfiles[-1].split("fch")[1][:4])
+        if len(allfiles) != maxchan + 1:
+            raise ValueError(f"Missing files in {simdir}")
+        channels = f"0~{maxchan+1}"
 
     cmd = f"""
     time python rechunk-fast.py \
     --r-prototype "{sky_model}_fch{{channel:04d}}_nt17280_chunk${time_chunk}.uvh5" \
     --chunk-size {new_chunk_size} \
-    --channels 0~1536 \
+    --channels {channels} \
     --sky-cmp {sky_model}\
     --assume-same-blt-layout \
     --is-rectangular \
@@ -210,7 +219,3 @@ def cornerturn(
         subprocess.call(f"sbatch {sbatch_file}".split())
 
     logger.debug(f"\n===Job Script===\n{sbatch}\n===END===\n")
-
-
-if __name__ == "__main__":
-    cli()
