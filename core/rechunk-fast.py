@@ -93,7 +93,9 @@ def find_all_files(
 
 
 def get_file_time_slices(
-    meta_list: list[FastUVH5Meta], lsts_per_chunk: int, lst_wrap: float
+    meta_list: list[FastUVH5Meta],
+    lsts_per_chunk: int,
+    lst_wrap: float,
 ):
     """Get the time slices in each file that need to be taken."""
     dlst = -1
@@ -291,7 +293,7 @@ def chunk_files(
     # Get the slices we'll need for each chunk.
     logger.info("Getting time slices for each output file...")
     chunk_slices = get_file_time_slices(
-        raw_files[channels[0]], n_times_per_file, lst_wrap
+        raw_files[channels[0]], n_times_per_file, lst_wrap, time_first
     )
     logger.info("Got all time slices")
 
@@ -466,6 +468,11 @@ def write_freq_chunk(
             if data.ndim > 3:
                 raise ValueError(
                     "Data has old array shapes. Please make it future array shapes."
+                )
+
+            if data.shape[0] < this_nblts:
+                raise ValueError(
+                    f"Data in {pth} has fewer blts than expected ({data.shape[0]} < {this_nblts})."
                 )
 
         full_dset[nblts_so_far : nblts_so_far + this_nblts, ich - start_index] = data[
