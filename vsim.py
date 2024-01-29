@@ -161,18 +161,6 @@ def cornerturn(
     log_dir = Path(f"logs/chunk/{sky_model}")
     log_dir.mkdir(parents=True, exist_ok=True)
 
-    slurm_override = slurm_override + (
-        ("job-name", f"{sky_model}-ct"),
-        ("output", f"{log_dir}/%J.out"),
-        ("nodes", "1"),
-        ("ntasks", "1"),
-        ("cpus-per-task", "16"),
-        ("mem", "16GB"),
-        ("time", "1-12:00:00"),
-    )
-
-    sbatch = _cli._get_sbatch_program(gpu=False, slurm_override=slurm_override)
-
     if direc is None:
         simdir = utils.OUTDIR / utils.VIS_DIRFMT.format(
             sky_model=sky_model, chunks=nchunks_sim
@@ -194,6 +182,26 @@ def cornerturn(
         if len(allfiles) != maxchan + 1:
             raise ValueError(f"Missing files in {simdir}")
         channels = f"0~{maxchan+1}"
+
+    nchannels = int(channels.split("~")[1]) - int(channels.split("~")[0])
+    estimated_time = 36 * nchannels / 1536  # hours
+
+    if estimated_time > 24:
+        estimated_time = f"1-{estimated_time-24:02d}:00:00"
+    else:
+        estimated_time = f"{estimated_time:02d}:00:00"
+
+    slurm_override = slurm_override + (
+        ("job-name", f"{sky_model}-ct"),
+        ("output", f"{log_dir}/%J.out"),
+        ("nodes", "1"),
+        ("ntasks", "1"),
+        ("cpus-per-task", "16"),
+        ("mem", "16GB"),
+        ("time", estimated_time),
+    )
+
+    sbatch = _cli._get_sbatch_program(gpu=False, slurm_override=slurm_override)
 
     cmd = f"""
     time python rechunk-fast.py \
