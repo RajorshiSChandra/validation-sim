@@ -451,7 +451,17 @@ def write_freq_chunk(
             else:
                 slices = slice(nbls * slc.start, nbls * (slc.start + this_ntimes))
 
-            data = fl["/Data/visdata"][slices]
+            data = fl["/Data/visdata"]
+
+            logger.debug(
+                f"Reading file {pth} with slices {slices} for channel {ch}."
+                f"Data has shape {data.shape}. This chunk has {this_ntimes} times and "
+                f"{this_nblts} blts."
+            )
+
+            data = data[slices]
+
+            logger.debug(f"After slicing out times, data has shape {data.shape}.")
 
             if data.ndim > 3:
                 raise ValueError(
