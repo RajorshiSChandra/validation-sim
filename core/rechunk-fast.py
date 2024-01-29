@@ -479,7 +479,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--channels",
         type=str,
-        help='the channels to read, in the form "low~high", eg "0~1535"',
+        help='the channels to read, in the form "low~high", eg "0~1536"',
         nargs="+",
     )
     parser.add_argument(
