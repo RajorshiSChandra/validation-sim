@@ -116,10 +116,25 @@ def sky_model(
 @click.option("-c", "--time-chunk", default=0)
 @click.option("-n", "--new-chunk-size", default=2)
 @click.option("--nchunks-sim", default=3, type=int)
+@click.option("--conjugate/--no-conjugate", default=False)
+@click.option("--remove-cross-pols/--keep-cross-pols", default=False)
+@click.option(
+    "--direc",
+    default=None,
+    type=click.Path(exists=True, dir_okay=True, file_okay=False),
+)
 @_cli.opts.dry_run
 @_cli.opts.slurm_override
 def cornerturn(
-    sky_model, time_chunk, slurm_override, new_chunk_size, dry_run, nchunks_sim
+    sky_model,
+    time_chunk,
+    slurm_override,
+    new_chunk_size,
+    dry_run,
+    nchunks_sim,
+    conjugate: bool,
+    remove_cross_pols: bool,
+    direc: Path | None,
 ):
     """Perform a cornerturn on simulation files.
 
@@ -147,23 +162,39 @@ def cornerturn(
 
     sbatch = _cli._get_sbatch_program(gpu=False, slurm_override=slurm_override)
 
-    simdir = utils.OUTDIR / utils.VIS_DIRFMT.format(
-        sky_model=sky_model, chunks=nchunks_sim
-    )
+    if direc is None:
+        simdir = utils.OUTDIR / utils.VIS_DIRFMT.format(
+            sky_model=sky_model, chunks=nchunks_sim
+        )
+    else:
+        simdir = direc
+
     outdir = simdir / "rechunk"
     outdir.mkdir(parents=True, exist_ok=True)
+
+    if conjugate:
+        conjugate = "--conjugate"
+    else:
+        conjugate = ""
+
+    if remove_cross_pols:
+        remove_cross_pols = "--remove-cross-pols"
+    else:
+        remove_cross_pols = ""
 
     cmd = f"""
     time python rechunk-fast.py \
     --r-prototype "{sky_model}_fch{{channel:04d}}_nt17280_chunk${time_chunk}.uvh5" \
     --chunk-size {new_chunk_size} \
-    --channels 0~1535 \
+    --channels 0~1536 \
     --sky-cmp {sky_model}\
     --assume-same-blt-layout \
     --is-rectangular \
     --nthreads 16 \
+    {conjugate} \
+    {remove_cross_pols} \
     {simdir} \
-    {outdir}
+    {outdir} \
     """
 
     sbatch_dir = utils.REPODIR / "batch_scripts/rechunk"
