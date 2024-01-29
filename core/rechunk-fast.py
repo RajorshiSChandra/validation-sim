@@ -195,6 +195,8 @@ def chunk_files(
     nthreads: int | None = None,
     is_rectangular: bool | None = None,
     max_freq_chunk_size: int = 100000000,
+    remove_cross_pols: bool = False,
+    conjugate: bool = False,
 ):
     """Chunk given files."""
     # Load the read files, and check that the read prototype is valid if provided.
@@ -259,6 +261,11 @@ def chunk_files(
     # TODO: Support flexible spectral window in the future
     uvd.flex_spw = False
     uvd.flex_spw_id_array = np.zeros_like(freqs, dtype=np.integer)
+
+    if remove_cross_pols:
+        pol_indices = [i for i, pol in enumerate(meta.pols) if pol[0] == pol[1]]
+        uvd.Npols = len(pol_indices)
+        uvd.polarization_array = meta.polarization_array[pol_indices]
 
     DTYPE = uvd.data_array.dtype
 
@@ -377,6 +384,7 @@ def chunk_files(
                         shape=SHAPE,
                         channels=channels,
                         start_index=freq_slice.start,
+                        pol_indices=pol_indices,
                         DTYPE=DTYPE,
                     ),
                     range(freq_slice.start, freq_slice.stop),
@@ -384,6 +392,9 @@ def chunk_files(
 
                 # Now write the data.
                 with h5py.File(pth, "a") as fl:
+                    if conjugate:
+                        full_dset = np.conjugate(full_dset)
+
                     fl["/Data/visdata"][:, freq_slice] = full_dset
                 del full_dset
         else:
@@ -407,6 +418,7 @@ def write_freq_chunk(
     channels,
     start_index,
     DTYPE,
+    pol_indices: list[int],
 ):
     """Write out a particular frequency chunk to file."""
     ntimes_left = ntimes
@@ -436,8 +448,13 @@ def write_freq_chunk(
 
             data = fl["/Data/visdata"][slices]
 
+            if data.ndim > 3:
+                raise ValueError(
+                    "Data has old array shapes. Please make it future array shapes."
+                )
+
         full_dset[nblts_so_far : nblts_so_far + this_nblts, ich - start_index] = data[
-            :this_nblts, 0
+            :this_nblts, 0, pol_indices
         ]
 
         ntimes_left -= this_ntimes
@@ -513,6 +530,16 @@ if __name__ == "__main__":
         help="Maximum number of frequencies to read at once. Setting --max-mem "
         "will try autodetect optimal setting.",
     )
+    parser.add_argument(
+        "--remove-cross-pols",
+        action="store_true",
+        help="Whether to remove cross-pols from the data.",
+    )
+    parser.add_argument(
+        "--conjugate",
+        action="store_true",
+        help="Whether to conjugate the data. THIS IS ONLY FOR FIXING ISSUES WITH EARLY VERSIONS OF VIS_CPU.",
+    )
     args = parse_args(parser)
 
     # Check that the read/write directories actually exist with proper permissions.
@@ -560,4 +587,6 @@ if __name__ == "__main__":
         max_mem_mb=args.max_mem,
         nthreads=args.nthreads,
         max_freq_chunk_size=args.max_freq_chunk_size,
+        remove_cross_pols=args.remove_cross_pols,
+        conjugate=args.conjugate,
     )
