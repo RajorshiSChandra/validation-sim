@@ -168,7 +168,11 @@ def cornerturn(
     else:
         simdir = Path(direc)
 
-    outdir = simdir / "rechunk"
+    outdir = (
+        utils.OUTDIR
+        / utils.VIS_DIRFMT.format(sky_model=sky_model, chunks=nchunks_sim)
+        / "rechunk"
+    )
     outdir.mkdir(parents=True, exist_ok=True)
 
     conjugate = "--conjugate" if conjugate else ""
