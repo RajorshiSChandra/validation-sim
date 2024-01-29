@@ -180,6 +180,19 @@ def reset_time_arrays(uvd, meta, times, lsts, ras, pas, slc, time_first):
     uvd.Ntimes = nt
 
 
+def _check_rectangularity_consistency(
+    raw_files: dict[int, list[Path]], time_first: bool
+):
+    # Ensure all the files have rectangular blts with the same ordering.
+    # This is a requirement for the chunking to work.
+    for ch in channels:
+        for meta in raw_files[ch]:
+            if not meta.blts_are_rectangular:
+                raise ValueError("Not all files have rectangular blts.")
+            if meta.time_axis_faster_than_bls != time_first:
+                raise ValueError("Not all files have the same blt ordering.")
+
+
 def chunk_files(
     channels,
     r_prototype: str,
@@ -211,16 +224,10 @@ def chunk_files(
 
     logger.info(f"Number of raw data files: {len(raw_files)}")
 
-    # Ensure all the files have rectangular blts with the same ordering.
-    # This is a requirement for the chunking to work.
     time_first = raw_files[channels[0]][0].time_axis_faster_than_bls
+
     if not assume_blt_layout:
-        for ch in channels:
-            for meta in raw_files[ch]:
-                if not meta.blts_are_rectangular:
-                    raise ValueError("Not all files have rectangular blts.")
-                if meta.time_axis_faster_than_bls != time_first:
-                    raise ValueError("Not all files have the same blt ordering.")
+        _check_rectangularity_consistency(raw_files, time_first)
 
     # Read the metadata from a file to get the times.
     logging.info("Reading reference metadata...")
@@ -267,7 +274,7 @@ def chunk_files(
         uvd.Npols = len(pol_indices)
         uvd.polarization_array = meta.polarization_array[pol_indices]
 
-    DTYPE = uvd.data_array.dtype
+    DTYPE = np.dtype(complex) if uvd.data_array is None else uvd.data_array.dtype
 
     if time_first:
         phase_center_ra = uvd.phase_center_app_ra[: meta.Ntimes]
@@ -287,8 +294,6 @@ def chunk_files(
         raw_files[channels[0]], n_times_per_file, lst_wrap
     )
     logger.info("Got all time slices")
-
-    # metas0 = raw_files[channels[0]]
 
     # Figure out how many frequencies we can fit in the data at once.
     current_mem = ps.memory_info().rss
