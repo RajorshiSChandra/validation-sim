@@ -186,7 +186,7 @@ def cornerturn(
         allfiles = sorted(
             simdir.glob(f"{sky_model}_fch????_nt17280_chunk{time_chunk}.uvh5")
         )
-        maxchan = int(allfiles[-1].split("fch")[1][:4])
+        maxchan = int(allfiles[-1].name.split("fch")[1][:4])
         if len(allfiles) != maxchan + 1:
             raise ValueError(f"Missing files in {simdir}")
         channels = f"0~{maxchan+1}"
