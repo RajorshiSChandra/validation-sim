@@ -18,8 +18,8 @@ from pathlib import Path
 import h5py
 import numpy as np
 import psutil
-from hera_cli_tools import parse_args, run_with_profiling
-from pyuvdata.uvdata.uvh5 import FastUVH5Meta
+from hera_cli_utils import parse_args, run_with_profiling
+from pyuvdata.uvdata import FastUVH5Meta
 
 logger = logging.getLogger("rechunk")
 ps = psutil.Process()

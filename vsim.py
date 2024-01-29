@@ -193,7 +193,7 @@ def cornerturn(
 
     cmd = f"""
     time python rechunk-fast.py \
-    --r-prototype "{sky_model}_fch{{channel:04d}}_nt17280_chunk${time_chunk}.uvh5" \
+    --r-prototype "{sky_model}_fch{{channel:04d}}_nt17280_chunk{time_chunk}.uvh5" \
     --chunk-size {new_chunk_size} \
     --channels {channels} \
     --sky-cmp {sky_model}\
@@ -205,7 +205,6 @@ def cornerturn(
     {simdir} \
     {outdir} \
     """
-
     sbatch_dir = utils.REPODIR / "batch_scripts/rechunk"
     sbatch_dir.mkdir(parents=True, exist_ok=True)
 
