@@ -186,7 +186,7 @@ def cornerturn(
     nchannels = int(channels.split("~")[1]) - int(channels.split("~")[0])
     estimated_time = 36 * nchannels / 1536  # hours
 
-    estimated_minutes = max(int(estimated_time - int(estimated_time)) * 60, 1)
+    estimated_minutes = max(int(estimated_time - int(estimated_time)) * 60, 10)
 
     if estimated_time > 24:
         estimated_time = f"1-{int(estimated_time)-24:02d}:{estimated_minutes:02d}:00"
@@ -206,7 +206,7 @@ def cornerturn(
     sbatch = _cli._get_sbatch_program(gpu=False, slurm_override=slurm_override)
 
     cmd = f"""
-    time python rechunk-fast.py \
+    time python core/rechunk-fast.py \
     --r-prototype "{sky_model}_fch{{channel:04d}}_nt17280_chunk{time_chunk}.uvh5" \
     --chunk-size {new_chunk_size} \
     --channels {channels} \
