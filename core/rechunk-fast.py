@@ -18,7 +18,7 @@ from pathlib import Path
 import h5py
 import numpy as np
 import psutil
-from hera_cli_tools import parse_args, run_with_profiling
+from hera_cli_utils import parse_args, run_with_profiling
 from pyuvdata.uvdata.uvh5 import FastUVH5Meta
 
 logger = logging.getLogger("rechunk")
@@ -267,7 +267,10 @@ def chunk_files(
         uvd.Npols = len(pol_indices)
         uvd.polarization_array = meta.polarization_array[pol_indices]
 
-    DTYPE = uvd.data_array.dtype
+    if uvd.data_array is not None:
+        DTYPE = uvd.data_array.dtype
+    else:
+        DTYPE = np.dtype(complex)
 
     if time_first:
         phase_center_ra = uvd.phase_center_app_ra[: meta.Ntimes]
