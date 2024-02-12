@@ -18,8 +18,8 @@ from pathlib import Path
 import h5py
 import numpy as np
 import psutil
-from hera_cli_tools import parse_args, run_with_profiling
-from pyuvdata.uvdata.uvh5 import FastUVH5Meta
+from hera_cli_utils import parse_args, run_with_profiling
+from pyuvdata.uvdata import FastUVH5Meta
 
 logger = logging.getLogger("rechunk")
 ps = psutil.Process()
@@ -93,7 +93,9 @@ def find_all_files(
 
 
 def get_file_time_slices(
-    meta_list: list[FastUVH5Meta], lsts_per_chunk: int, lst_wrap: float
+    meta_list: list[FastUVH5Meta],
+    lsts_per_chunk: int,
+    lst_wrap: float,
 ):
     """Get the time slices in each file that need to be taken."""
     dlst = -1
@@ -180,6 +182,19 @@ def reset_time_arrays(uvd, meta, times, lsts, ras, pas, slc, time_first):
     uvd.Ntimes = nt
 
 
+def _check_rectangularity_consistency(
+    raw_files: dict[int, list[Path]], time_first: bool
+):
+    # Ensure all the files have rectangular blts with the same ordering.
+    # This is a requirement for the chunking to work.
+    for ch in channels:
+        for meta in raw_files[ch]:
+            if not meta.blts_are_rectangular:
+                raise ValueError("Not all files have rectangular blts.")
+            if meta.time_axis_faster_than_bls != time_first:
+                raise ValueError("Not all files have the same blt ordering.")
+
+
 def chunk_files(
     channels,
     r_prototype: str,
@@ -195,6 +210,8 @@ def chunk_files(
     nthreads: int | None = None,
     is_rectangular: bool | None = None,
     max_freq_chunk_size: int = 100000000,
+    remove_cross_pols: bool = False,
+    conjugate: bool = False,
 ):
     """Chunk given files."""
     # Load the read files, and check that the read prototype is valid if provided.
@@ -209,16 +226,10 @@ def chunk_files(
 
     logger.info(f"Number of raw data files: {len(raw_files)}")
 
-    # Ensure all the files have rectangular blts with the same ordering.
-    # This is a requirement for the chunking to work.
     time_first = raw_files[channels[0]][0].time_axis_faster_than_bls
+
     if not assume_blt_layout:
-        for ch in channels:
-            for meta in raw_files[ch]:
-                if not meta.blts_are_rectangular:
-                    raise ValueError("Not all files have rectangular blts.")
-                if meta.time_axis_faster_than_bls != time_first:
-                    raise ValueError("Not all files have the same blt ordering.")
+        _check_rectangularity_consistency(raw_files, time_first)
 
     # Read the metadata from a file to get the times.
     logging.info("Reading reference metadata...")
@@ -260,7 +271,12 @@ def chunk_files(
     uvd.flex_spw = False
     uvd.flex_spw_id_array = np.zeros_like(freqs, dtype=np.integer)
 
-    DTYPE = uvd.data_array.dtype
+    if remove_cross_pols:
+        pol_indices = [i for i, pol in enumerate(meta.pols) if pol[0] == pol[1]]
+        uvd.Npols = len(pol_indices)
+        uvd.polarization_array = meta.polarization_array[pol_indices]
+
+    DTYPE = np.dtype(complex) if uvd.data_array is None else uvd.data_array.dtype
 
     if time_first:
         phase_center_ra = uvd.phase_center_app_ra[: meta.Ntimes]
@@ -277,11 +293,9 @@ def chunk_files(
     # Get the slices we'll need for each chunk.
     logger.info("Getting time slices for each output file...")
     chunk_slices = get_file_time_slices(
-        raw_files[channels[0]], n_times_per_file, lst_wrap
+        raw_files[channels[0]], n_times_per_file, lst_wrap, time_first
     )
     logger.info("Got all time slices")
-
-    # metas0 = raw_files[channels[0]]
 
     # Figure out how many frequencies we can fit in the data at once.
     current_mem = ps.memory_info().rss
@@ -377,6 +391,7 @@ def chunk_files(
                         shape=SHAPE,
                         channels=channels,
                         start_index=freq_slice.start,
+                        pol_indices=pol_indices,
                         DTYPE=DTYPE,
                     ),
                     range(freq_slice.start, freq_slice.stop),
@@ -384,6 +399,9 @@ def chunk_files(
 
                 # Now write the data.
                 with h5py.File(pth, "a") as fl:
+                    if conjugate:
+                        full_dset = np.conjugate(full_dset)
+
                     fl["/Data/visdata"][:, freq_slice] = full_dset
                 del full_dset
         else:
@@ -407,6 +425,7 @@ def write_freq_chunk(
     channels,
     start_index,
     DTYPE,
+    pol_indices: list[int],
 ):
     """Write out a particular frequency chunk to file."""
     ntimes_left = ntimes
@@ -434,10 +453,30 @@ def write_freq_chunk(
             else:
                 slices = slice(nbls * slc.start, nbls * (slc.start + this_ntimes))
 
-            data = fl["/Data/visdata"][slices]
+            data = fl["/Data/visdata"]
+
+            logger.debug(
+                f"Reading file {pth} with slices {slices} for channel {ch}."
+                f"Data has shape {data.shape}. This chunk has {this_ntimes} times and "
+                f"{this_nblts} blts."
+            )
+
+            data = data[slices]
+
+            logger.debug(f"After slicing out times, data has shape {data.shape}.")
+
+            if data.ndim > 3:
+                raise ValueError(
+                    "Data has old array shapes. Please make it future array shapes."
+                )
+
+            if data.shape[0] < this_nblts:
+                raise ValueError(
+                    f"Data in {pth} has fewer blts than expected ({data.shape[0]} < {this_nblts})."
+                )
 
         full_dset[nblts_so_far : nblts_so_far + this_nblts, ich - start_index] = data[
-            :this_nblts, 0
+            :this_nblts, 0, pol_indices
         ]
 
         ntimes_left -= this_ntimes
@@ -462,7 +501,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--channels",
         type=str,
-        help='the channels to read, in the form "low~high", eg "0~1535"',
+        help='the channels to read, in the form "low~high", eg "0~1536"',
         nargs="+",
     )
     parser.add_argument(
@@ -513,6 +552,16 @@ if __name__ == "__main__":
         help="Maximum number of frequencies to read at once. Setting --max-mem "
         "will try autodetect optimal setting.",
     )
+    parser.add_argument(
+        "--remove-cross-pols",
+        action="store_true",
+        help="Whether to remove cross-pols from the data.",
+    )
+    parser.add_argument(
+        "--conjugate",
+        action="store_true",
+        help="Whether to conjugate the data. THIS IS ONLY FOR FIXING ISSUES WITH EARLY VERSIONS OF VIS_CPU.",
+    )
     args = parse_args(parser)
 
     # Check that the read/write directories actually exist with proper permissions.
@@ -560,4 +609,6 @@ if __name__ == "__main__":
         max_mem_mb=args.max_mem,
         nthreads=args.nthreads,
         max_freq_chunk_size=args.max_freq_chunk_size,
+        remove_cross_pols=args.remove_cross_pols,
+        conjugate=args.conjugate,
     )
