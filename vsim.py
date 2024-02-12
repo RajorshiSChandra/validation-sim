@@ -64,7 +64,7 @@ option_nside = click.option("--nside", default=256, show_default=True)
 
 
 @cli.command("sky-model")
-@click.argument("sky_model", type=click.Choice(["gsm", "diffuse", "ptsrc", "eor"]))
+@click.argument("sky_model", type=click.Choice(["gsm", "diffuse", "ptsrc", "grf-eor"]))
 @_cli.opts.channels
 @_cli.opts.freq_range
 @_cli.opts.slurm_override
@@ -98,7 +98,7 @@ def sky_model(
         elif sky_model == "ptsrc":
             sm.make_ptsrc_model(channels, nside)
         elif sky_model == "eor":
-            raise NotImplementedError("eor sky model not supported yet")
+            sm.make_grf_eor_model(f"healpix-maps{nside}.h5", channels=channels)
     else:
         sm.run_make_sky_model(
             sky_model,
