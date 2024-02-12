@@ -293,7 +293,7 @@ def chunk_files(
     # Get the slices we'll need for each chunk.
     logger.info("Getting time slices for each output file...")
     chunk_slices = get_file_time_slices(
-        raw_files[channels[0]], n_times_per_file, lst_wrap, time_first
+        raw_files[channels[0]], n_times_per_file, lst_wrap
     )
     logger.info("Got all time slices")
 
