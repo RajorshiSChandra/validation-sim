@@ -113,6 +113,7 @@ def make_grf_eor_model(model_file: str, channels: list[int]):
         "spectral_type": "full",
         "freq_array": [freqs[0]] * units.Hz,
         "stokes": stokes,
+        "frame": "icrs",
     }
 
     eor_model = SkyModel(**params)
