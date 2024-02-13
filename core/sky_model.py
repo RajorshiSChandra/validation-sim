@@ -99,7 +99,7 @@ def make_grf_eor_model(model_file: str, channels: list[int]):
     # Note: we move the WHOLE sky up by a set amount so that the minimum value is 1.0.
     # We do not move parts of the map by different amounts.
     hmaps_min = hmaps.min()
-    hmaps -= hmaps_min - 1.0
+    hmaps -= 1.01 * hmaps_min
 
     # Initialize stokes array
     stokes = np.zeros((4, 1, npix)) * units.Jy / units.sr
