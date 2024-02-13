@@ -121,6 +121,7 @@ def make_grf_eor_model(model_file: str, channels: list[int]):
     outdir.mkdir(parents=True, exist_ok=True)
 
     for fch in channels:
+        logger.info(f"Constructing channel {fch}")
         eor_model.stokes[0, 0] = hmaps[fch]
         eor_model.freq_array[0] = freqs[fch]
 
