@@ -117,13 +117,14 @@ def make_grf_eor_model(model_file: str, channels: list[int]):
 
     eor_model = SkyModel(**params)
 
+    outdir = utils.SKYDIR / f"eor-grf-{nside}"
+    outdir.mkdir(parents=True, exist_ok=True)
+
     for fch in channels:
         eor_model.stokes[0, 0] = hmaps[fch]
         eor_model.freq_array[0] = freqs[fch]
 
-        eor_model.write_skyh5(
-            utils.SKYDIR / f"eor-grf-{nside}" / f"fch{fch:04d}.skyh5", clobber=True
-        )
+        eor_model.write_skyh5(outdir / f"fch{fch:04d}.skyh5", clobber=True)
 
 
 class FranzenSourceCounts:
