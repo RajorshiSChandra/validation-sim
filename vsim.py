@@ -97,8 +97,10 @@ def sky_model(
             sm.make_diffuse_model(channels, nside)
         elif sky_model == "ptsrc":
             sm.make_ptsrc_model(channels, nside)
-        elif sky_model == "eor":
+        elif sky_model == "grf-eor":
             sm.make_grf_eor_model(f"healpix-maps{nside}.h5", channels=channels)
+        else:
+            raise ValueError(f"Unknown sky model: {sky_model}")
     else:
         sm.run_make_sky_model(
             sky_model,
