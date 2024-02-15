@@ -669,7 +669,7 @@ def run_make_sky_model(
             if len(g) == 1:
                 chan_opt += f"--channels {g[0]} "
             else:
-                chan_opt += f"--channels {g[0]}~{g[-1]}"
+                chan_opt += f"--channels {g[0]}~{g[-1]+1}"
 
         cmd = f"time python vsim.py sky-model {sky_model} --local --nside {nside} {chan_opt}"
 
