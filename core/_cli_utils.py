@@ -163,8 +163,8 @@ class opts:
         show_default=True,
         help="Verbosity level, also pass the flag to hera-sim-vis.py",
     )
-    spatial_spline_order = click.option(
-        "--spatial-spline-order",
+    spline_interp_order = click.option(
+        "--spline-interp-order",
         default=3,
         type=int,
         show_default=True,
