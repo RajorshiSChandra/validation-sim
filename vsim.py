@@ -51,12 +51,19 @@ def hera_cli(channels, freq_range, **kwargs):
 @_cli.opts.freq_range
 @_cli.opts.sky_model
 @_cli.opts.n_time_chunks
-def make_obsparams(layout, freq_range, channels, sky_model, n_time_chunks):
+@_cli.opts.spatial_spline_order
+def make_obsparams(
+    layout, freq_range, channels, sky_model, n_time_chunks, spatial_spline_order
+):
     """Make obsparams for H4C simulations given a sky model and frequencies."""
     channels = _cli.parse_channels(channels, freq_range)
 
     make_hera_obsparam(
-        layout=layout, channels=channels, sky_model=sky_model, chunks=n_time_chunks
+        layout=layout,
+        channels=channels,
+        sky_model=sky_model,
+        chunks=n_time_chunks,
+        spline_interp_order=spatial_spline_order,
     )
 
 
