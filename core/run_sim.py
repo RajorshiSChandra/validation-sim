@@ -38,7 +38,7 @@ def run_validation_sim(
     log_level: str,
     dry_run: bool,
     freq_interp_kind: str = "cubic",
-    spline_interp_order: int = 3,
+    spline_interp_order: int = 1,
     do_time_chunks: list[int] | None = None,
     profile: bool = False,
 ):
@@ -46,7 +46,7 @@ def run_validation_sim(
     simulator_config = (
         utils.REPODIR / "visgpu.yaml" if gpu else utils.REPODIR / "viscpu.yaml"
     )
-
+    
     logger.info(f"Frequency channels to run: {channels}")
 
     layout_file = make_hera_obsparam(
@@ -106,13 +106,15 @@ def run_validation_sim(
         for ch in do_time_chunks:
             logger.info(f"Working on frequency channel {fch} chunk {ch}")
 
-            outfile = out_dir / utils.VIS_FLFMT.format(
-                sky_model=sky_model, fch=fch, ch=ch, layout=layout_file.stem
+            outfile = out_dir / "{}.uvh5".format(
+                utils.VIS_FLFMT.format(
+                    sky_model=sky_model, fch=fch, ch=ch, layout=layout_file.stem
+                )
             )
             obsp = obsp_dir / utils.OBSPARAM_FLFMT.format(
                 sky_model=sky_model, ch=ch, fch=fch, layout=layout_file.stem
             )
-
+            logger.info(f'{outfile.as_posix()}')
             # Check if output file already existed, if clobber is False
             if skip_existing and outfile.exists():
                 logger.warning(f"File {outfile} exists, skipping")
