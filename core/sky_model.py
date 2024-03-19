@@ -96,7 +96,8 @@ def make_grf_eor_model(model_file: str, channels: list[int]):
     npix = hp.nside2npix(nside)
 
     # Shift the maps values so there are no negative values
-    # Note: we move the WHOLE sky up by a set amount so that the minimum value is 1.0.
+    # Note: we move the WHOLE sky at ALL frequencies up by a set amount so that the
+    # minimum value is positive
     # We do not move parts of the map by different amounts.
     hmaps_min = hmaps.min()
     hmaps -= 1.01 * hmaps_min
