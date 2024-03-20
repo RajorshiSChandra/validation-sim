@@ -163,6 +163,13 @@ class opts:
         show_default=True,
         help="Verbosity level, also pass the flag to hera-sim-vis.py",
     )
+    spline_interp_order = click.option(
+        "--spline-interp-order",
+        default=3,
+        type=int,
+        show_default=True,
+        help="Order of the spatial spline interpolation",
+    )
     profile = click.option(
         "--profile/--no-profile", default=False, help="Run line-profiling"
     )

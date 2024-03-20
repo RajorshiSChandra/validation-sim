@@ -3,6 +3,7 @@ import logging
 import subprocess
 from functools import cache, cached_property
 
+import h5py
 import healpy as hp
 import numpy as np
 from astropy import units
@@ -73,48 +74,60 @@ def dnds_franzen(s, a=None, norm=False):
         return s**-2.5 * out
 
 
-"""===LOGIC CODE==="""
+def make_grf_eor_model(model_file: str, channels: list[int]):
+    """Make a GRF EoR SkyModel.
 
-# Commented out due to missing source file
-# def make_eor_model(fch):
-#     """Make EoR SkyModel."""
-#     model_dir = utils.SKYDIR / 'eor'
-#     f = h5py.File(f'{model_dir}/healpix_maps.h5', 'r')
+    The model file is here assumed to contain Nfreqs healpix maps. The format of the
+    file is custom, as defined by @zacharymartinot, and the sky map is created by
+    his redshifted_gaussian_field code.
+    """
+    model_dir = utils.SKYDIR / "eor"
 
-#     nside = int(f['nside'][()])
-#     npix = hp.nside2npix(nside)
+    with h5py.File(model_dir / model_file, "r") as fl:
+        nside = int(fl["nside"][()])
+        freqs = fl["frequencies_mhz"][:] * 1e6 << units.Hz  # units Hz
 
-#     freqs = f['frequencies_mhz'][:] * 1e6  # units Hz
-#     # nfreqs = len(freqs)
-#     # seed = int(f['realization_random_seed'][()])
+        # HEALPix array -- dimension (nfreqs, npix) -- unit Jy/sr
+        # We must read in the whole thing to set the monopole.
+        hmaps = fl["healpix_maps_Jy_per_sr"][:, :]
 
-#     # HEALPix array -- dimension (nfreqs, npix) -- unit Jy/sr
-#     hmaps = f['healpix_maps_Jy_per_sr'][:, :]
+    hmaps <<= units.Jy / units.sr
 
-#     # Shift the maps values so there is no negative avalues
-#     hmaps_min = hmaps.min(axis=1)[:, np.newaxis]
-#     hmaps = hmaps - hmaps_min + 0.5 * np.abs(hmaps_min)
+    npix = hp.nside2npix(nside)
 
-#     # Initialize Stoke array
-#     stokes = np.zeros((4, 1, npix)) * units.Jy / units.sr
-#     stokes[0, 0, :] = hmaps[fch] * units.Jy / units.sr
+    # Shift the maps values so there are no negative values
+    # Note: we move the WHOLE sky at ALL frequencies up by a set amount so that the
+    # minimum value is positive
+    # We do not move parts of the map by different amounts.
+    hmaps_min = hmaps.min()
+    hmaps -= 1.01 * hmaps_min
 
-#     # Setup SkyModel params
-#     params = {
-#         'component_type': 'healpix',
-#         'nside': nside,
-#         'hpx_order': 'ring',
-#         'hpx_inds': np.arange(npix),
-#         'spectral_type': 'full',
-#         'freq_array': [freqs[fch]] * units.Hz,
-#         'stokes': stokes
-#     }
+    # Initialize stokes array
+    stokes = np.zeros((4, 1, npix)) * units.Jy / units.sr
 
-#     eor_model = SkyModel(**params)
-#     eor_model.write_skyh5(
-#         f'{model_dir}/fch{fch:04d}.skyh5',
-#         clobber=True
-#     )
+    # Setup SkyModel params
+    params = {
+        "component_type": "healpix",
+        "nside": nside,
+        "hpx_order": "ring",
+        "hpx_inds": np.arange(npix),
+        "spectral_type": "full",
+        "freq_array": [freqs[0]] * units.Hz,
+        "stokes": stokes,
+        "frame": "icrs",
+    }
+
+    eor_model = SkyModel(**params)
+
+    outdir = utils.SKYDIR / f"eor-grf-{nside}"
+    outdir.mkdir(parents=True, exist_ok=True)
+
+    for fch in channels:
+        logger.info(f"Constructing channel {fch}")
+        eor_model.stokes[0, 0] = hmaps[fch]
+        eor_model.freq_array[0] = freqs[fch]
+
+        eor_model.write_skyh5(outdir / f"fch{fch:04d}.skyh5", clobber=True)
 
 
 class FranzenSourceCounts:
@@ -657,7 +670,7 @@ def run_make_sky_model(
             if len(g) == 1:
                 chan_opt += f"--channels {g[0]} "
             else:
-                chan_opt += f"--channels {g[0]}~{g[-1]}"
+                chan_opt += f"--channels {g[0]}~{g[-1]+1}"
 
         cmd = f"time python vsim.py sky-model {sky_model} --local --nside {nside} {chan_opt}"
 

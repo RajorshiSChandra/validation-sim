@@ -51,12 +51,19 @@ def hera_cli(channels, freq_range, **kwargs):
 @_cli.opts.freq_range
 @_cli.opts.sky_model
 @_cli.opts.n_time_chunks
-def make_obsparams(layout, freq_range, channels, sky_model, n_time_chunks):
+@_cli.opts.spline_interp_order
+def make_obsparams(
+    layout, freq_range, channels, sky_model, n_time_chunks, spline_interp_order
+):
     """Make obsparams for H4C simulations given a sky model and frequencies."""
     channels = _cli.parse_channels(channels, freq_range)
 
     make_hera_obsparam(
-        layout=layout, channels=channels, sky_model=sky_model, chunks=n_time_chunks
+        layout=layout,
+        channels=channels,
+        sky_model=sky_model,
+        chunks=n_time_chunks,
+        spline_interp_order=spline_interp_order,
     )
 
 
@@ -64,7 +71,7 @@ option_nside = click.option("--nside", default=256, show_default=True)
 
 
 @cli.command("sky-model")
-@click.argument("sky_model", type=click.Choice(["gsm", "diffuse", "ptsrc", "eor"]))
+@click.argument("sky_model", type=click.Choice(["gsm", "diffuse", "ptsrc", "grf-eor"]))
 @_cli.opts.channels
 @_cli.opts.freq_range
 @_cli.opts.slurm_override
@@ -97,8 +104,10 @@ def sky_model(
             sm.make_diffuse_model(channels, nside)
         elif sky_model == "ptsrc":
             sm.make_ptsrc_model(channels, nside)
-        elif sky_model == "eor":
-            raise NotImplementedError("eor sky model not supported yet")
+        elif sky_model == "grf-eor":
+            sm.make_grf_eor_model(f"healpix-maps{nside}.h5", channels=channels)
+        else:
+            raise ValueError(f"Unknown sky model: {sky_model}")
     else:
         sm.run_make_sky_model(
             sky_model,
