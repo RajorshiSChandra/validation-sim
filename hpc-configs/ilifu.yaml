@@ -12,7 +12,7 @@ conda:
 module:
   # List environment modules to load
   - "openmpi"
-  - "cuda"
+  - "cuda/11.8"
 
 slurm:
   # SLURM SBATCH options, listed as --flag: value
@@ -23,12 +23,13 @@ slurm:
     nodes: 1  # Number of nodes
     mem: "24GB"  # Memory with unit
     ntasks: 1  # Number of tasks
-    time: "0-00:60:00"  # slurm-aware time string format
+    cpus-per-task: 2
+    time: "1-12:00:00"  # slurm-aware time string format
   gpu:
     partition: "GPU"  # Name of partition
     nodes: 1  # Number of nodes
-    mem: "24GB"  # Memory with unit
+    mem: "20GB"  # Memory with unit
     ntasks: 1  # Number of tasks
-    time: "0-00:60:00"  # slurm-aware time string format
+    time: "0-03:00:00"  # slurm-aware time string format
     gres: "gpu:1"  # Some cluster do not support --gpus flag
     

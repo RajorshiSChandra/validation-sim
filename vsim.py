@@ -193,7 +193,7 @@ def cornerturn(
 
     if channels is None:
         allfiles = sorted(
-            simdir.glob(f"{sky_model}_fch????_nt17280_chunk{time_chunk}.uvh5")
+            simdir.glob(f"{sky_model}_fch????_nt17280_chunk{time_chunk:03d}_{layout}.uvh5")
         )
         maxchan = int(allfiles[-1].name.split("fch")[1][:4])
         if len(allfiles) != maxchan + 1:
@@ -224,7 +224,7 @@ def cornerturn(
 
     cmd = f"""
     time python core/rechunk-fast.py \
-    --r-prototype "{sky_model}_fch{{channel:04d}}_nt17280_chunk{time_chunk}.uvh5" \
+    --r-prototype "{sky_model}_fch{{channel:04d}}_nt17280_chunk{time_chunk:03d}_{layout}.uvh5" \
     --chunk-size {new_chunk_size} \
     --channels {channels} \
     --sky-cmp {sky_model}\
@@ -240,7 +240,7 @@ def cornerturn(
     sbatch_dir = utils.REPODIR / "batch_scripts/rechunk"
     sbatch_dir.mkdir(parents=True, exist_ok=True)
 
-    sbatch_file = sbatch_dir / f"{sky_model}_ch{time_chunk}.sbatch"
+    sbatch_file = sbatch_dir / f"{sky_model}_ch{time_chunk:03d}_{layout}.sbatch"
 
     sbatch = "\n".join([sbatch, "", cmd, ""])
     with open(sbatch_file, "w") as fl:

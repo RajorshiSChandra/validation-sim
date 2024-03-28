@@ -273,8 +273,10 @@ def chunk_files(
 
     if remove_cross_pols:
         pol_indices = [i for i, pol in enumerate(meta.pols) if pol[0] == pol[1]]
-        uvd.Npols = len(pol_indices)
-        uvd.polarization_array = meta.polarization_array[pol_indices]
+    else:
+        pol_indices = [i for i, pol in enumerate(meta.pols)]
+    uvd.Npols = len(pol_indices)
+    uvd.polarization_array = meta.polarization_array[pol_indices]
 
     DTYPE = np.dtype(complex) if uvd.data_array is None else uvd.data_array.dtype
 
@@ -293,7 +295,7 @@ def chunk_files(
     # Get the slices we'll need for each chunk.
     logger.info("Getting time slices for each output file...")
     chunk_slices = get_file_time_slices(
-        raw_files[channels[0]], n_times_per_file, lst_wrap, time_first
+        raw_files[channels[0]], n_times_per_file, lst_wrap
     )
     logger.info("Got all time slices")
 
