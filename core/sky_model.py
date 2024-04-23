@@ -672,7 +672,7 @@ def run_make_sky_model(
             else:
                 chan_opt += f"--channels {g[0]}~{g[-1]+1}"
 
-        cmd = f"time python vsim.py sky-model {sky_model} --local --nside {nside} {chan_opt}"
+        cmd = f"time python vsim.py sky-model {sky_model} --local --nside {nside} --eor-label '{label}' {chan_opt}"
 
         if utils.HPC_CONFIG["slurm"]:
             # Write job script and submit
