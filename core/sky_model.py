@@ -118,7 +118,7 @@ def make_grf_eor_model(model_file: str, channels: list[int], label: str = ""):
 
     eor_model = SkyModel(**params)
 
-    outdir = utils.SKYDIR / f"eor-grf-{nside}-{label}"
+    outdir = utils.SKYDIR / f"eor-grf-{nside}{label}"
     outdir.mkdir(parents=True, exist_ok=True)
 
     for fch in channels:
