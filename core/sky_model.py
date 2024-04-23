@@ -74,7 +74,7 @@ def dnds_franzen(s, a=None, norm=False):
         return s**-2.5 * out
 
 
-def make_grf_eor_model(model_file: str, channels: list[int]):
+def make_grf_eor_model(model_file: str, channels: list[int], label: str = ""):
     """Make a GRF EoR SkyModel.
 
     The model file is here assumed to contain Nfreqs healpix maps. The format of the
@@ -99,8 +99,7 @@ def make_grf_eor_model(model_file: str, channels: list[int]):
     # Note: we move the WHOLE sky at ALL frequencies up by a set amount so that the
     # minimum value is positive
     # We do not move parts of the map by different amounts.
-    hmaps_min = hmaps.min()
-    hmaps -= 1.01 * hmaps_min
+    hmaps -= hmaps.min()
 
     # Initialize stokes array
     stokes = np.zeros((4, 1, npix)) * units.Jy / units.sr
@@ -119,7 +118,7 @@ def make_grf_eor_model(model_file: str, channels: list[int]):
 
     eor_model = SkyModel(**params)
 
-    outdir = utils.SKYDIR / f"eor-grf-{nside}"
+    outdir = utils.SKYDIR / f"eor-grf-{nside}-{label}"
     outdir.mkdir(parents=True, exist_ok=True)
 
     for fch in channels:

@@ -80,6 +80,7 @@ option_nside = click.option("--nside", default=256, show_default=True)
 @option_nside
 @click.option("--local/--slurm", default=False)
 @click.option("--split-freqs/--no-split-freqs", default=False)
+@click.option("--eor-label", default="")
 def sky_model(
     sky_model,
     freq_range,
@@ -90,6 +91,7 @@ def sky_model(
     split_freqs,
     skip_existing,
     dry_run,
+    eor_label,
 ):
     """Make SkyModel at given frequencies.
 
@@ -105,7 +107,9 @@ def sky_model(
         elif sky_model == "ptsrc":
             sm.make_ptsrc_model(channels, nside)
         elif sky_model == "grf-eor":
-            sm.make_grf_eor_model(f"healpix-maps{nside}.h5", channels=channels)
+            sm.make_grf_eor_model(
+                f"healpix-maps{nside}{eor_label}.h5", channels=channels, label=eor_label
+            )
         else:
             raise ValueError(f"Unknown sky model: {sky_model}")
     else:
@@ -193,7 +197,9 @@ def cornerturn(
 
     if channels is None:
         allfiles = sorted(
-            simdir.glob(f"{sky_model}_fch????_nt17280_chunk{time_chunk:03d}_{layout}.uvh5")
+            simdir.glob(
+                f"{sky_model}_fch????_nt17280_chunk{time_chunk:03d}_{layout}.uvh5"
+            )
         )
         maxchan = int(allfiles[-1].name.split("fch")[1][:4])
         if len(allfiles) != maxchan + 1:
