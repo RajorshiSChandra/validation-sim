@@ -30,6 +30,8 @@ debugging, etc.)
       `gpus`). In general, you should use as much `mem` as available on a single node
       on your system, and use `nodes=1` (as multiple nodes are used via multiple
       jobs).
+4. Note that CUDA 11 is required (NOT Cuda 12), so ensure that the loaded modules are
+   correct. You can check this by running `module list` on your system.
 
 ### Running a Simulation
 

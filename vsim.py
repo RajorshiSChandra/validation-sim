@@ -31,9 +31,8 @@ def cli():
     pass
 
 
-@cli.command("runsim")
 @_cli.opts.add_opts
-def hera_cli(channels, freq_range, **kwargs):
+def runsim(channels, freq_range, **kwargs):
     """Run HERA validation simulations.
 
     Use the default parameters, configuration files, and directories for HERA sims
@@ -193,7 +192,9 @@ def cornerturn(
 
     if channels is None:
         allfiles = sorted(
-            simdir.glob(f"{sky_model}_fch????_nt17280_chunk{time_chunk:03d}_{layout}.uvh5")
+            simdir.glob(
+                f"{sky_model}_fch????_nt17280_chunk{time_chunk:03d}_{layout}.uvh5"
+            )
         )
         maxchan = int(allfiles[-1].name.split("fch")[1][:4])
         if len(allfiles) != maxchan + 1:
