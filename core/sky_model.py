@@ -592,6 +592,7 @@ def run_make_sky_model(
     skip_existing: bool,
     dry_run: bool,
     split_freqs: bool = False,
+    label: str = "",
 ):
     """Run the sky model creation via SLURM."""
     model = f"{sky_model}{nside}"
@@ -632,7 +633,7 @@ def run_make_sky_model(
                 logger.warning(f"File {outfile} exists, skipping")
                 continue
 
-            cmd = f"time python vsim.py sky-model {sky_model} --local --nside {nside} --freq-range {fch} {fch+1}"
+            cmd = f"time python vsim.py sky-model {sky_model} --local --nside {nside} --freq-range {fch} {fch+1} --label '{label}'"
 
             if utils.HPC_CONFIG["slurm"]:
                 # Write job script and submit
