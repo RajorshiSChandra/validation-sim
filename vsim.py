@@ -121,6 +121,7 @@ def sky_model(
             skip_existing=skip_existing,
             dry_run=dry_run,
             split_freqs=split_freqs,
+            label=eor_label,
         )
 
 
