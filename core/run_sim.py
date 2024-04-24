@@ -46,7 +46,7 @@ def run_validation_sim(
     simulator_config = (
         utils.REPODIR / "visgpu.yaml" if gpu else utils.REPODIR / "viscpu.yaml"
     )
-    
+
     logger.info(f"Frequency channels to run: {channels}")
 
     layout_file = make_hera_obsparam(
@@ -96,6 +96,9 @@ def run_validation_sim(
     compress_cache = utils.COMPRESSDIR / utils.COMPRESS_FMT.format(
         chunks=n_time_chunks, layout_file=layout_file.stem
     )
+    if not utils.COMPRESSDIR.exists():
+        utils.COMPRESSDIR.mkdir(parents=True)
+
     # Option for hera-sim-vis.py. Let's just keep this fixed.
     sim_options = (
         f"--normalize_beams --fix_autos --compress {compress_cache} "
@@ -114,7 +117,7 @@ def run_validation_sim(
             obsp = obsp_dir / utils.OBSPARAM_FLFMT.format(
                 sky_model=sky_model, ch=ch, fch=fch, layout=layout_file.stem
             )
-            logger.info(f'{outfile.as_posix()}')
+            logger.info(f"{outfile.as_posix()}")
             # Check if output file already existed, if clobber is False
             if skip_existing and outfile.exists():
                 logger.warning(f"File {outfile} exists, skipping")
