@@ -100,6 +100,9 @@ def run_validation_sim(
     compress_cache = utils.COMPRESSDIR / utils.COMPRESS_FMT.format(
         chunks=n_time_chunks, layout_file=layout_file.stem
     )
+    if not utils.COMPRESSDIR.exists():
+        utils.COMPRESSDIR.mkdir(parents=True)
+
     # Option for hera-sim-vis.py. Let's just keep this fixed.
     sim_options = (
         f"--normalize_beams --fix_autos --compress {compress_cache} "

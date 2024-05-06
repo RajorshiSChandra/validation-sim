@@ -31,7 +31,6 @@ def cli():
     pass
 
 
-@cli.command("runsim")
 @_cli.opts.add_opts
 @click.option("--simulator", type=click.Choice(["fftvis", "matvis"]), default="matvis")
 def hera_cli(channels, freq_range, **kwargs):
