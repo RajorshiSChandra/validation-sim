@@ -74,7 +74,9 @@ def dnds_franzen(s, a=None, norm=False):
         return s**-2.5 * out
 
 
-def make_grf_eor_model(model_file: str, channels: list[int], label: str = ""):
+def make_grf_eor_model(
+    model_file: str, channels: list[int], make_positive: bool = True, label: str = ""
+):
     """Make a GRF EoR SkyModel.
 
     The model file is here assumed to contain Nfreqs healpix maps. The format of the
@@ -99,7 +101,8 @@ def make_grf_eor_model(model_file: str, channels: list[int], label: str = ""):
     # Note: we move the WHOLE sky at ALL frequencies up by a set amount so that the
     # minimum value is positive
     # We do not move parts of the map by different amounts.
-    hmaps -= hmaps.min()
+    if make_positive:
+        hmaps -= hmaps.min()
 
     # Initialize stokes array
     stokes = np.zeros((4, 1, npix)) * units.Jy / units.sr
@@ -593,6 +596,7 @@ def run_make_sky_model(
     dry_run: bool,
     split_freqs: bool = False,
     label: str = "",
+    make_positive: bool = True,
 ):
     """Run the sky model creation via SLURM."""
     model = f"{sky_model}{nside}"
@@ -622,6 +626,7 @@ def run_make_sky_model(
     sbatch_dir = utils.REPODIR / "batch_scripts/skymodel"
     sbatch_dir.mkdir(parents=True, exist_ok=True)
 
+    posstr = "--make-positive" if make_positive else "--leave-negatives"
     if split_freqs:
         for fch in channels:
             logger.info(f"Working on frequency channel {fch}")
@@ -633,7 +638,7 @@ def run_make_sky_model(
                 logger.warning(f"File {outfile} exists, skipping")
                 continue
 
-            cmd = f"time python vsim.py sky-model {sky_model} --local --nside {nside} --freq-range {fch} {fch+1} --label '{label}'"
+            cmd = f"time python vsim.py sky-model {sky_model} --local --nside {nside} --freq-range {fch} {fch+1} --label '{label}' {posstr}"
 
             if utils.HPC_CONFIG["slurm"]:
                 # Write job script and submit
@@ -672,7 +677,7 @@ def run_make_sky_model(
             else:
                 chan_opt += f"--channels {g[0]}~{g[-1]+1}"
 
-        cmd = f"time python vsim.py sky-model {sky_model} --local --nside {nside} --label '{label}' {chan_opt}"
+        cmd = f"time python vsim.py sky-model {sky_model} --local --nside {nside} --label '{label}' {chan_opt} {posstr}"
 
         if utils.HPC_CONFIG["slurm"]:
             # Write job script and submit
