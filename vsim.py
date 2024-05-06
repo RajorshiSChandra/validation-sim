@@ -31,6 +31,7 @@ def cli():
     pass
 
 
+@cli.command
 @_cli.opts.add_opts
 @click.option("--simulator", type=click.Choice(["fftvis", "matvis"]), default="matvis")
 def runsim(channels, freq_range, **kwargs):
