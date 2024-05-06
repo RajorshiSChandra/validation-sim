@@ -417,7 +417,7 @@ def make_ateam_model() -> SkyModel:
     return SkyModel(**ateam_model_params)
 
 
-def make_ptsrc_model(channels: list[int], nside: int = 256, **kw):
+def make_ptsrc_model(channels: list[int], nside: int = 256, label="", **kw):
     """Create a point-source model."""
     # Load GLEAM-like and A-Team SkyModel objects, making them if they do not exist
     # in the default path
@@ -456,7 +456,7 @@ def make_ptsrc_model(channels: list[int], nside: int = 256, **kw):
 
         ptsrc = gleam_like_f.concat(ateam_f, inplace=False)
 
-        write_sky(ptsrc, f"ptsrc{nside}", fch)
+        write_sky(ptsrc, f"ptsrc{nside}{label}", fch)
 
 
 def make_confusion_map(
@@ -556,7 +556,7 @@ def make_healpix_type_sky_model(
     return sky_model
 
 
-def make_gsm_model(channels: list[int], nside: int = 256) -> SkyModel:
+def make_gsm_model(channels: list[int], nside: int = 256, label="") -> SkyModel:
     """Make a GSM SkyModel at a given frequency channel."""
     freqs = H4C_FREQS[channels]
     gsm = GlobalSkyModel(freq_unit=freqs[0].unit)
@@ -566,10 +566,10 @@ def make_gsm_model(channels: list[int], nside: int = 256) -> SkyModel:
         gsm_model = make_healpix_type_sky_model(
             gsm_map, freq, nside, inframe="galactic", outframe="icrs", to_point=True
         )
-        write_sky(gsm_model, f"gsm_nside{nside}", fch)
+        write_sky(gsm_model, f"gsm_nside{nside}{label}", fch)
 
 
-def make_diffuse_model(channels: int, nside: int = 256) -> SkyModel:
+def make_diffuse_model(channels: int, nside: int = 256, label="") -> SkyModel:
     """Make a diffuse SkyModel (GSM + confusion at a given frequency channel."""
     freqs = H4C_FREQS[channels]
     gsm = GlobalSkyModel(freq_unit=freqs[0].unit)
@@ -581,7 +581,7 @@ def make_diffuse_model(channels: int, nside: int = 256) -> SkyModel:
         diffuse_model = make_healpix_type_sky_model(
             diffuse_map, freq, nside, inframe="galactic", outframe="icrs", to_point=True
         )
-        write_sky(diffuse_model, f"diffuse_nside{nside}", fch)
+        write_sky(diffuse_model, f"diffuse_nside{nside}{label}", fch)
 
 
 def run_make_sky_model(
@@ -672,7 +672,7 @@ def run_make_sky_model(
             else:
                 chan_opt += f"--channels {g[0]}~{g[-1]+1}"
 
-        cmd = f"time python vsim.py sky-model {sky_model} --local --nside {nside} --eor-label '{label}' {chan_opt}"
+        cmd = f"time python vsim.py sky-model {sky_model} --local --nside {nside} --label '{label}' {chan_opt}"
 
         if utils.HPC_CONFIG["slurm"]:
             # Write job script and submit

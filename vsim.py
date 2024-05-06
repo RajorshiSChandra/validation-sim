@@ -80,7 +80,7 @@ option_nside = click.option("--nside", default=256, show_default=True)
 @option_nside
 @click.option("--local/--slurm", default=False)
 @click.option("--split-freqs/--no-split-freqs", default=False)
-@click.option("--eor-label", default="")
+@click.option("--label", default="")
 def sky_model(
     sky_model,
     freq_range,
@@ -91,7 +91,7 @@ def sky_model(
     split_freqs,
     skip_existing,
     dry_run,
-    eor_label,
+    label,
 ):
     """Make SkyModel at given frequencies.
 
@@ -101,14 +101,14 @@ def sky_model(
     channels = _cli.parse_channels(channels, freq_range)
     if local:
         if sky_model == "gsm":
-            sm.make_gsm_model(channels, nside)
+            sm.make_gsm_model(channels, nside, label=label)
         elif sky_model == "diffuse":
-            sm.make_diffuse_model(channels, nside)
+            sm.make_diffuse_model(channels, nside, label=label)
         elif sky_model == "ptsrc":
-            sm.make_ptsrc_model(channels, nside)
+            sm.make_ptsrc_model(channels, nside, label=label)
         elif sky_model == "grf-eor":
             sm.make_grf_eor_model(
-                f"healpix-maps{nside}{eor_label}.h5", channels=channels, label=eor_label
+                f"healpix-maps{nside}{label}.h5", channels=channels, label=label
             )
         else:
             raise ValueError(f"Unknown sky model: {sky_model}")
@@ -121,7 +121,7 @@ def sky_model(
             skip_existing=skip_existing,
             dry_run=dry_run,
             split_freqs=split_freqs,
-            label=eor_label,
+            label=label,
         )
 
 
