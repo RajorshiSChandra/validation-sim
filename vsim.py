@@ -33,7 +33,7 @@ def cli():
 
 @_cli.opts.add_opts
 @click.option("--simulator", type=click.Choice(["fftvis", "matvis"]), default="matvis")
-def hera_cli(channels, freq_range, **kwargs):
+def runsim(channels, freq_range, **kwargs):
     """Run HERA validation simulations.
 
     Use the default parameters, configuration files, and directories for HERA sims
