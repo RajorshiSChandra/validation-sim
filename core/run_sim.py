@@ -143,11 +143,24 @@ def run_validation_sim(
                     f"--profile --profile-output profiling/{proflabel}.profile.txt"
                 )
                 prof_funcs = [
-                    f"matvis.{'gpu' if gpu else 'cpu'}:simulate",
-                    "hera_sim.visibilities.matvis:MatVis",
                     "hera_sim.visibilities.simulators:VisibilitySimulation",
                     "hera_sim.visibilities.simulators:ModelData",
                 ]
+                if simulator == "matvis":
+                    prof_funcs.extend(
+                        [
+                            f"matvis.{'gpu' if gpu else 'cpu'}:simulate",
+                            "hera_sim.visibilities.matvis:MatVis",
+                        ]
+                    )
+                elif simulator == "fftvis":
+                    prof_funcs.extend(
+                        [
+                            "fftvis.simulate:simulate",
+                            "hera_sim.visibilities.fftvis:FFTVis",
+                        ]
+                    )
+
                 prof_funcs = ",".join(prof_funcs)
                 profilestr += f' --profile-funcs "{prof_funcs}"'
 
