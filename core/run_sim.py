@@ -132,7 +132,7 @@ def run_validation_sim(
             if profile:
                 proflabel = (
                     f"{sky_model}-gpu{gpu}-nt{n_time_chunks}-{layout_file.stem}-"
-                    f"mv{matvis.__version__}-hs{hera_sim.__version__}"
+                    f"{simulator}-mv{matvis.__version__}-hs{hera_sim.__version__}"
                 )
                 if gpu:
                     trace = (
