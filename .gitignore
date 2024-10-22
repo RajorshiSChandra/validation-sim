@@ -24,3 +24,4 @@ tmp/
 *.nsys-rep
 *.sqlite
 batch_scripts/
+profiling/

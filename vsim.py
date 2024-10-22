@@ -8,11 +8,7 @@ import click
 from rich.logging import RichHandler
 
 from core import _cli_utils as _cli
-from core import sky_model as sm
 from core import utils
-from core.obsparams import make_hera_obsparam
-from core.run_sim import run_validation_sim
-
 logging.basicConfig(
     level="NOTSET",
     format="%(message)s",
@@ -33,38 +29,52 @@ def cli():
 
 @cli.command
 @_cli.opts.add_opts
-@click.option("--simulator", type=click.Choice(["fftvis", "matvis"]), default="matvis")
+@click.option("--simulator", type=click.Choice(["fftvis", "matvis", "fftvis64", "fftvis32"]), default="matvis")
 def runsim(channels, freq_range, **kwargs):
     """Run HERA validation simulations.
 
     Use the default parameters, configuration files, and directories for HERA sims
     (see make_obsparams.py).
     """
-    channels = _cli.parse_channels(channels, freq_range)
+    from core.run_sim import run_validation_sim
 
+    channels = _cli.parse_channels(channels, freq_range)
+    if 'beam_interpolator' in kwargs:
+        del kwargs['beam_interpolator']
     run_validation_sim(channels=channels, **kwargs)
 
 
 @cli.command("make-obsparams")
 @_cli.opts.layout
 @_cli.opts.ants
+@_cli.opts.ideal_layout
 @_cli.opts.channels
 @_cli.opts.freq_range
 @_cli.opts.sky_model
 @_cli.opts.n_time_chunks
 @_cli.opts.spline_interp_order
+@_cli.opts.redundant
+@_cli.opts.do_time_chunks
+@click.option("--beam-interpolator", default='az_za_map_coordinates')
 def make_obsparams(
-    layout, freq_range, channels, sky_model, n_time_chunks, spline_interp_order
+    layout, ideal_layout, freq_range, channels, sky_model, n_time_chunks, 
+    spline_interp_order, beam_interpolator, redundant, do_time_chunks
 ):
     """Make obsparams for H4C simulations given a sky model and frequencies."""
+    from core.obsparams import make_hera_obsparam
+
     channels = _cli.parse_channels(channels, freq_range)
 
     make_hera_obsparam(
         layout=layout,
+        ideal_layout=ideal_layout,
         channels=channels,
         sky_model=sky_model,
         chunks=n_time_chunks,
         spline_interp_order=spline_interp_order,
+        beam_interpolator=beam_interpolator,
+        redundant=redundant,
+        do_chunks=do_time_chunks
     )
 
 
@@ -83,6 +93,7 @@ option_nside = click.option("--nside", default=256, show_default=True)
 @click.option("--split-freqs/--no-split-freqs", default=False)
 @click.option("--label", default="")
 @click.option("--make-positive/--leave-negatives", default=True)
+@click.option("--with-confusion/--no-confusion", default=True)
 def sky_model(
     sky_model,
     freq_range,
@@ -95,18 +106,22 @@ def sky_model(
     dry_run,
     label,
     make_positive,
+    with_confusion,
 ):
     """Make SkyModel at given frequencies.
 
     Frequencies are based on H4C data.
     Outputs are written to the default directories, i.e. "./sky_models/<type>".
     """
+
     channels = _cli.parse_channels(channels, freq_range)
     if local:
+        from core import sky_model as sm
+
         if sky_model == "gsm":
             sm.make_gsm_model(channels, nside, label=label)
         elif sky_model == "diffuse":
-            sm.make_diffuse_model(channels, nside, label=label)
+            sm.make_diffuse_model(channels, nside, with_confusion=with_confusion, label=label)
         elif sky_model == "ptsrc":
             sm.make_ptsrc_model(channels, nside, label=label)
         elif sky_model == "grf-eor":
@@ -119,7 +134,8 @@ def sky_model(
         else:
             raise ValueError(f"Unknown sky model: {sky_model}")
     else:
-        sm.run_make_sky_model(
+        from core.run_sky_model import run_make_sky_model
+        run_make_sky_model(
             sky_model,
             channels,
             nside,
@@ -129,9 +145,33 @@ def sky_model(
             split_freqs=split_freqs,
             label=label,
             make_positive=make_positive,
+            with_confusion=with_confusion,
         )
 
+@cli.command
+@click.option('--nside', type=int, required=True)
+@click.option('--seed', type=int, default=2038)
+@click.option("--local/--slurm", default=False)
+def grf_realization(nside, seed, local):
+    from core.grf_realization import compute_grf_realization, run_compute_grf_realization
 
+    if local:
+        compute_grf_realization(nside=nside, seed=seed)
+    else:
+        run_compute_grf_realization(nside=nside, seed=seed)
+    
+@cli.command
+@click.option('--test-mode/--production', default=False)
+@click.option('--ell-max', default=1250)
+@click.option("--local/--slurm", default=False)
+def grf_covariance(test_mode, ell_max, local):
+    from core.grf_covariance import compute_grf_covariance, run_compute_grf_covariance
+    
+    if local:
+        compute_grf_covariance(test_mode, ell_max=ell_max)
+    else:
+        run_compute_grf_covariance(test_mode, ell_max=ell_max)
+        
 @cli.command("cornerturn")
 @_cli.opts.sky_model
 @click.option("-c", "--time-chunk", default=0)

@@ -1,9 +1,6 @@
 # Template for HPC config for run_sim.py
 # None-number values should be quoted 
 
-paths:
-  beams: "/ilifu/astro/projects/hera/Validation/HERA_beams"
-
 conda:
   # Shorten path will be resolved
   conda_path: "~/miniconda3"

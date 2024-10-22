@@ -1,4 +1,3 @@
-name: h4c
 channels:
   - conda-forge
   - default
@@ -20,13 +19,17 @@ dependencies:
   - mako
   - pycuda
   - line_profiler
+  - numba
+  - gitpython
   - pip:
     - scikit-cuda
     - hera-calibration
-    - vis-cpu==1.1.0
+    - matvis
+    - fftvis
     - git+https://github.com/HERA-Team/hera_sim.git  # Need for pyuvdata>=2.4.0 compatibility until new release arrives
-    - pyuvdata==2.4.0
-    - pyradiosky==0.3.0
-    - pyuvsim==1.2.6
-    - pygdsm==1.3.0
-    - uvtools==0.2.0  # TODO: Check if actually using
+    - pyuvdata==2.4.5
+    - pyradiosky
+    - pyuvsim
+    - pygdsm
+    - uvtools  # TODO: Check if actually using
+    - git+https://github.com/zacharymartinot/redshifted_gaussian_fields

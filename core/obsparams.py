@@ -3,8 +3,8 @@
 from functools import cache
 from hashlib import md5
 from pathlib import Path
-
 import yaml
+import numpy as np
 
 from . import utils
 
@@ -21,20 +21,29 @@ CONTEXT_SETTINGS = {"help_option_names": ["-h", "--help"]}
 
 @cache
 def make_tele_config(
-    freq_interp_kind: str = "cubic", spline_interp_order: int = 3
+    freq_interp_kind: str = "cubic", spline_interp_order: int = 3, beam_interpolator: str = "az_za_map_coordinates"
 ) -> Path:
     """Make a telescope config file."""
-    beampath = utils.HPC_CONFIG["paths"]["beams"]
     config = f"""
 beam_paths:
-  0: '{beampath}/NF_HERA_Vivaldi_efield_beam_extrap.fits'
+  0: '{utils.BEAMDIR}/NF_HERA_Vivaldi_efield_beam_extrap.fits'
 telescope_location: {str(utils.HERA_LOC)}
 telescope_name: HERA
 freq_interp_kind: '{freq_interp_kind}'
-spline_interp_opts:
-        kx: {spline_interp_order}
-        ky: {spline_interp_order}
 """
+
+    if beam_interpolator=="az_za_simple":
+        config += f"""
+spline_interp_opts:
+  kx: {spline_interp_order}
+  ky: {spline_interp_order}
+"""
+    elif beam_interpolator=="az_za_map_coordinates":
+        config += f"""
+spline_interp_opts:
+  order: {spline_interp_order}
+"""
+
 
     _fname = f"hera_{freq_interp_kind}_{spline_interp_order}.yaml"
     fname = CFGDIR / "teleconfigs" / "tmp" / _fname
@@ -59,32 +68,33 @@ def make_hera_obsparam(
     channels: list[int],
     sky_model: str,
     chunks: int,
-    do_chunks: list[int] | None,
+    do_chunks: list[int] | None = None,
+    ideal_layout: bool = True,
     freq_interp_kind: str = "cubic",
     spline_interp_order: int = 3,
+    beam_interpolator: str = "az_za_map_coordinates",
     season: str = "H4C",
     force: bool = False,
+    redundant: bool = False,
+    prefix: str = "default"
 ):
-    """
-    Logic of the h4c cli function.
-
-    This allow the function to be called from other modules.
-    """
+    """Create an obsparam file."""
     freq_vals = utils.FREQS_DICT[season][channels]
 
     if NTIMES % chunks != 0:
         raise ValueError(f"Please choose chunks to divide NTIMES {NTIMES} cleanly")
 
+    print('chunks: ', chunks)
     if do_chunks is None:
-        do_chunks = list(range(chunks))
+        do_chunks = list(range(chunks+1))
     else:
         assert all(x < chunks for x in do_chunks)
-
+    print(do_chunks)
     Ntimes_per_chunk = NTIMES // chunks
 
     if isinstance(layout, str):
         # it's a name
-        layout_file = utils.make_hera_layout(name=layout)
+        layout_file = utils.make_hera_layout(name=layout, ideal=ideal_layout)
     elif isinstance(layout, Path):
         layout_file = layout
     else:
@@ -92,27 +102,45 @@ def make_hera_obsparam(
         layout_file = utils.make_hera_layout(
             name=f"HERA_custom_subset_{md5(str(layout).encode()).hexdigest()}",
             ants=layout,
+            ideal=ideal_layout,
         )
 
     tele_config_file = make_tele_config(
-        freq_interp_kind=freq_interp_kind, spline_interp_order=spline_interp_order
+        freq_interp_kind=freq_interp_kind, spline_interp_order=spline_interp_order, beam_interpolator=beam_interpolator,
     )
 
-    obsparams_dir = utils.OBSPDIR / utils.OBSPARAM_DIRFMT.format(
-        sky_model=sky_model, chunks=chunks, layout=layout_file.stem
+    modeldir = utils.get_direc(
+        sky_model=sky_model, chunks=chunks, layout=layout_file.stem,
+        redundant=redundant, prefix=prefix,
     )
+    
+    obsparams_dir = utils.OBSPDIR / modeldir
     obsparams_dir.mkdir(parents=True, exist_ok=True)
+    outdir = utils.OUTDIR / modeldir
+    outdir.mkdir(parents=True, exist_ok=True)
 
-    outdir = utils.OUTDIR / utils.VIS_DIRFMT.format(
-        sky_model=sky_model, chunks=chunks, layout=layout_file.stem
-    )
+    if redundant:
+        redfile = layout_file.with_suffix(".redundancies")
+        if redfile.exists():
+            redbls = np.genfromtxt(redfile)
+            
+        else:
+            from pyuvdata.utils.redundancy import get_antenna_redundancies
+            from pyuvdata.utils import baseline_to_antnums
 
+            ants = np.genfromtxt(layout_file, skip_header=1, usecols=(1, 3,4,5), delimiter='\t')
+            antnums = ants[:, 0]
+            redbls = get_antenna_redundancies(antnums, ants[:, 1:], tol=4.0, use_grid_alg=True, include_autos=True)[0]  # hera thresh 
+            redbls = np.array([baseline_to_antnums(r[0], Nants_telescope=350) for r in redbls])
+            np.savetxt(redfile, redbls)
+        reds = [(int(a), int(b)) for a, b in redbls]
+
+    print(channels, freq_vals, do_chunks)
     for fch, fv in zip(channels, freq_vals):
         for ch in do_chunks:
-            obsparams_file = obsparams_dir / utils.OBSPARAM_FLFMT.format(
-                fch=fch, ch=ch, layout=layout_file.stem, sky_model=sky_model
-            )
-
+            jobname = modeldir / utils.get_file(chunk=ch, channel=fch, with_dir=False)
+            obsparams_file = utils.OBSPDIR / jobname
+            print(f"Going to make {obsparams_file}")
             if obsparams_file.exists() and not force:
                 continue
 
@@ -121,9 +149,7 @@ def make_hera_obsparam(
             obsparams = {
                 "filing": {
                     "outdir": f"{outdir}",
-                    "outfile_name": utils.VIS_FLFMT.format(
-                        sky_model=sky_model, fch=fch, ch=ch, layout=layout_file.stem
-                    ),
+                    "outfile_name": jobname.name,
                     "output_format": "uvh5",
                     "clobber": True,
                 },
@@ -148,9 +174,15 @@ def make_hera_obsparam(
                 },
                 # This order makes it fastest to put the vis-cpu data back in.
                 "polarization_array": [-5, -7, -8, -6],
+                'cat_name': sky_model,
             }
+            
+            if redundant:
+                obsparams['select'] = {'bls': str(reds)}
 
             with open(obsparams_file, "w") as stream:
                 yaml.dump(obsparams, stream, default_flow_style=False, sort_keys=False)
+
+            print(f"Wrote obsparams at {obsparams_file}")
 
     return layout_file
