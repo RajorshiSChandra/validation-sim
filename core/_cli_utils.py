@@ -226,6 +226,7 @@ def _get_sbatch_program(gpu: bool, slurm_override=None):
     sbatch = "\n".join([f"#SBATCH --{k}={v}" for k, v in slurm_params.items()])
 
     conda = """
+source ~/.bashrc
 source {conda_path}/bin/activate
 conda activate {environment_name}
 """.format_map(
