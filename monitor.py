@@ -4,6 +4,8 @@ from rich.panel import Panel
 from pathlib import Path
 import typer
 from core import utils
+import os
+import numpy as np
 
 cns = Console()
 cprint = cns.print
@@ -20,7 +22,8 @@ def main(
     chunks: list[int] | None = None,
     hide_not_run: bool = False,
     quiet: bool = False,
-    max_prints: int = 10
+    max_prints: int = 10,
+    chunked: bool = False,
 ):
     logdir = utils.LOGDIR / 'vis'
     outdir = utils.OUTDIR
@@ -58,7 +61,10 @@ def main(
     
     cprint(f"Model glob: {modelglob}")
 
-
+    if chunked:
+        check_chunked(outdir, modelglob)
+        return
+    
     all_log_models = [pth.relative_to(logdir) for pth in sorted(logdir.glob(modelglob))]
     all_out_models = [pth.relative_to(outdir) for pth in sorted(outdir.glob(modelglob))]
     
@@ -84,7 +90,11 @@ def main(
                 # Get the only output
                 outfl = sorted((outdir / mdl).glob(f"{fname}.uvh5"))
                 outfl = outfl[0] if outfl else None
-                files.append((channel, chunk, logfl, outfl))
+                if outfl is not None:
+                    flsize = os.stat(outfl).st_size
+                else:
+                    flsize = None
+                files.append((channel, chunk, logfl, outfl, flsize))
     
         npassed = len([x for x in files if x[2] is not None and x[3] is not None])
         cprint(f"[green]{npassed} files are completed properly.")
@@ -97,7 +107,15 @@ def main(
                 cprint(f"\t{x.name}")
             cprint()
 
-
+        # Get files that are run, but have a weird size.
+        mean_size = np.median([x[4] for x in files if x[4] is not None])
+        if weird_size := [
+            (x[3], x[4]) for x in files if x[4] is not None and (x[4] < mean_size - 1000 or x[4] > mean_size + 1000)
+        ]:
+            cprint(f"[red]{len(weird_size)} files have odd sizes: (median {mean_size/1024**3:.3f} GB)")
+            for outfl, flsize in weird_size:
+                cprint(f"\t{outfl.relative_to(Path(__file__).parent)}: {flsize/1024**3:.3f} GB")
+        
         if run_with_error := [
             x[2] for x in files if x[2] is not None and x[3] is None
         ]:
@@ -121,5 +139,65 @@ def main(
                     cprint(f"channel = {x[0]:04d}, chunk = {x[1]:04d}")
         cprint()
             
+def check_chunked(
+    outdir: Path,
+    modelglob: str,
+) -> None:
+    from pyuvdata.uvdata import FastUVH5Meta
+
+    all_models = [pth / "rechunk" for pth in sorted(outdir.glob(modelglob))]
+
+    for mdl in all_models:
+        cprint(Rule(str(mdl)))
+
+        # Exit early from this model if no outputs exist.
+        if not mdl.exists():
+            cprint("[red]No chunked outputs found...")
+            break
+
+        chunked_files = sorted(mdl.glob("*.uvh5"))
+        if not chunked_files:
+            cprint("[red]No chunked outputs found...")
+            break
+
+        # Determine how many files we should have, based on the first
+        meta = FastUVH5Meta(chunked_files[0])
+        chunksize = meta.Ntimes
+        nbls = meta.Nbls
+        npols = meta.Npols
+        nfiles_expected = 17280 // chunksize
+        nfreqs_expected = 1536
+
+        if len(chunked_files) < nfiles_expected:
+            cprint(f"[red]Only {len(chunked_files)} finished out of {nfiles_expected}.")
+            break
+
+        # If we got here, we have all the files, but we should check each one.
+        for fl in chunked_files[::500]:
+            meta = FastUVH5Meta(fl)
+
+            incorrect_shapes = []
+            if meta.datagrp['visdata'].shape != (chunksize*nbls, nfreqs_expected, npols):
+                incorrect_shapes.append(fl)
+
+            got_zeros = []
+            d = meta.datagrp['visdata'][0, :, 0]
+            if np.any(d==0):
+                got_zeros.append((fl, np.sum(d==0)))    
+
+        if incorrect_shapes:
+            cprint("[red]Some files have incorrect data shapes:")
+            for fl in incorrect_shapes:
+                cprint(f"{fl}")
+                
+        if got_zeros:
+            cprint("[red]Some files have data that is zero for some frequencies:")
+            for fl, nzeros in got_zeros:
+                cprint(f"{fl}: {nzeros}")
+
+        if not incorrect_shapes + got_zeros:
+            cprint("[green]All files completed without error!")
+
+        cprint()
 if __name__ == '__main__':
     typer.run(main)

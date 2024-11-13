@@ -151,15 +151,12 @@ def sky_model(
 @cli.command
 @click.option('--nside', type=int, required=True)
 @click.option('--seed', type=int, default=2038)
+@click.option("--low-memory/--fast-cpu", default=True)
 @click.option("--local/--slurm", default=False)
-def grf_realization(nside, seed, local):
-    from core.grf_realization import compute_grf_realization, run_compute_grf_realization
+def grf_realization(nside, seed, local, low_memory):
+    from core.grf_realization import run_compute_grf_realization
+    run_compute_grf_realization(nside=nside, seed=seed, low_memory=low_memory)
 
-    if local:
-        compute_grf_realization(nside=nside, seed=seed)
-    else:
-        run_compute_grf_realization(nside=nside, seed=seed)
-    
 @cli.command
 @click.option('--test-mode/--production', default=False)
 @click.option('--ell-max', default=1250)
@@ -194,6 +191,8 @@ def grf_covariance(test_mode, ell_max, local):
 @_cli.opts.log_level
 @_cli.opts.dry_run
 @_cli.opts.slurm_override
+@_cli.opts.redundant
+@_cli.opts.prefix
 def cornerturn(
     sky_model,
     time_chunk,
@@ -207,6 +206,8 @@ def cornerturn(
     channels: str | None,
     log_level: str,
     layout: str,
+    redundant: bool,
+    prefix: str    
 ):
     """Perform a cornerturn on simulation files.
 
@@ -225,30 +226,23 @@ def cornerturn(
     log_dir.mkdir(parents=True, exist_ok=True)
 
     if direc is None:
-        simdir = utils.OUTDIR / utils.VIS_DIRFMT.format(
-            sky_model=sky_model, chunks=nchunks_sim, layout=layout
+        simdir = utils.OUTDIR / utils.get_direc(
+            sky_model=sky_model, chunks=nchunks_sim, layout=layout,
+            redundant=redundant, prefix=prefix,
         )
     else:
         simdir = Path(direc)
 
-    outdir = (
-        utils.OUTDIR
-        / utils.VIS_DIRFMT.format(
-            sky_model=sky_model, chunks=nchunks_sim, layout=layout
-        )
-        / "rechunk"
-    )
+    outdir = simdir / "rechunk"
     outdir.mkdir(parents=True, exist_ok=True)
 
     conjugate = "--conjugate" if conjugate else ""
     remove_cross_pols = "--remove-cross-pols" if remove_cross_pols else ""
 
     if channels is None:
-        allfiles = sorted(
-            simdir.glob(
-                f"{sky_model}_fch????_nt17280_chunk{time_chunk:03d}_{layout}.uvh5"
-            )
-        )
+        print(simdir)
+        print(simdir.glob("*"))
+        allfiles = sorted(simdir.glob(f"fch????_chunk{time_chunk:05d}.uvh5"))
         maxchan = int(allfiles[-1].name.split("fch")[1][:4])
         if len(allfiles) != maxchan + 1:
             raise ValueError(f"Missing files in {simdir}")
@@ -270,7 +264,7 @@ def cornerturn(
         ("nodes", "1"),
         ("ntasks", "1"),
         ("cpus-per-task", "16"),
-        ("mem", "16GB"),
+        ("mem", "31GB"),
         ("time", estimated_time),
     )
 
@@ -278,7 +272,7 @@ def cornerturn(
 
     cmd = f"""
     time python core/rechunk-fast.py \
-    --r-prototype "{sky_model}_fch{{channel:04d}}_nt17280_chunk{time_chunk:03d}_{layout}.uvh5" \
+    --r-prototype "fch{{channel:04d}}_chunk{time_chunk:05d}.uvh5" \
     --chunk-size {new_chunk_size} \
     --channels {channels} \
     --sky-cmp {sky_model}\
