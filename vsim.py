@@ -92,7 +92,6 @@ option_nside = click.option("--nside", default=256, show_default=True)
 @click.option("--local/--slurm", default=False)
 @click.option("--split-freqs/--no-split-freqs", default=False)
 @click.option("--label", default="")
-@click.option("--make-positive/--leave-negatives", default=True)
 @click.option("--with-confusion/--no-confusion", default=True)
 def sky_model(
     sky_model,
@@ -105,7 +104,6 @@ def sky_model(
     skip_existing,
     dry_run,
     label,
-    make_positive,
     with_confusion,
 ):
     """Make SkyModel at given frequencies.
@@ -129,7 +127,6 @@ def sky_model(
                 f"healpix-maps{nside}{label}.h5",
                 channels=channels,
                 label=label,
-                make_positive=make_positive,
             )
         else:
             raise ValueError(f"Unknown sky model: {sky_model}")
@@ -144,7 +141,6 @@ def sky_model(
             dry_run=dry_run,
             split_freqs=split_freqs,
             label=label,
-            make_positive=make_positive,
             with_confusion=with_confusion,
         )
 

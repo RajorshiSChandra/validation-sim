@@ -29,3 +29,4 @@ memray-*
 *.flame
 AFalse_*
 ATrue_*
+beams/*.fits

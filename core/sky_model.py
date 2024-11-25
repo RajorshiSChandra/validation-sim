@@ -73,7 +73,7 @@ def dnds_franzen(s, a=None, norm=False):
 
 
 def make_grf_eor_model(
-    model_file: str, channels: list[int], make_positive: bool = True, label: str = ""
+    model_file: str, channels: list[int], label: str = ""
 ):
     """Make a GRF EoR SkyModel.
 
@@ -84,23 +84,16 @@ def make_grf_eor_model(
     model_dir = utils.SKYDIR / "eor"
 
     with h5py.File(model_dir / model_file, "r") as fl:
-        nside = int(fl["nside"][()])
-        freqs = fl["frequencies_mhz"][:] * 1e6 << units.Hz  # units Hz
+        shape =  fl['healpix_maps'].shape
+        nside = int(np.sqrt(shape[1]/12))
+        
+    freqs = H4C_FREQS.copy()
+#        freqs = fl["frequencies_mhz"][:] * 1e6 << units.Hz  # units Hz
 
         # HEALPix array -- dimension (nfreqs, npix) -- unit Jy/sr
         # We must read in the whole thing to set the monopole.
-        hmaps = fl["healpix_maps_Jy_per_sr"][:, :]
-
-    hmaps <<= units.Jy / units.sr
 
     npix = hp.nside2npix(nside)
-
-    # Shift the maps values so there are no negative values
-    # Note: we move the WHOLE sky at ALL frequencies up by a set amount so that the
-    # minimum value is positive
-    # We do not move parts of the map by different amounts.
-    if make_positive:
-        hmaps -= hmaps.min()
 
     # Initialize stokes array
     stokes = np.zeros((4, 1, npix)) * units.Jy / units.sr
@@ -124,7 +117,13 @@ def make_grf_eor_model(
 
     for fch in channels:
         logger.info(f"Constructing channel {fch}")
-        eor_model.stokes[0, 0] = hmaps[fch]
+        with h5py.File(model_dir / model_file, 'r') as fl:
+            
+            hmaps = fl["healpix_maps"][fch]
+
+        hmaps <<= units.Jy / units.sr
+
+        eor_model.stokes[0, 0] = hmaps
         eor_model.freq_array[0] = freqs[fch]
 
         eor_model.write_skyh5(outdir / f"fch{fch:04d}.skyh5", clobber=True)

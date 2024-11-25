@@ -14,7 +14,6 @@ def run_make_sky_model(
     dry_run: bool,
     split_freqs: bool = False,
     label: str = "",
-    make_positive: bool = True,
     with_confusion: bool = True,
 ):
     """Run the sky model creation via SLURM."""
@@ -45,7 +44,6 @@ def run_make_sky_model(
     sbatch_dir = utils.REPODIR / "batch_scripts/skymodel"
     sbatch_dir.mkdir(parents=True, exist_ok=True)
 
-    posstr = "--make-positive" if make_positive else "--leave-negatives"
     if split_freqs:
         for fch in channels:
             logger.info(f"Working on frequency channel {fch}")
@@ -57,7 +55,7 @@ def run_make_sky_model(
                 logger.warning(f"File {outfile} exists, skipping")
                 continue
 
-            cmd = f"time python vsim.py sky-model {sky_model} --local --nside {nside} --freq-range {fch} {fch+1} --label '{label}' {posstr}"
+            cmd = f"time python vsim.py sky-model {sky_model} --local --nside {nside} --freq-range {fch} {fch+1} --label '{label}'"
 
             if utils.HPC_CONFIG["slurm"]:
                 # Write job script and submit
@@ -97,7 +95,7 @@ def run_make_sky_model(
             )
             for g in groups
         )
-        cmd = f"time python vsim.py sky-model {sky_model} --local --nside {nside} --label '{label}' {chan_opt} {posstr}"
+        cmd = f"time python vsim.py sky-model {sky_model} --local --nside {nside} --label '{label}' {chan_opt}"
 
         if utils.HPC_CONFIG["slurm"]:
             # Write job script and submit
