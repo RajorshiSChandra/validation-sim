@@ -26,7 +26,8 @@ def make_tele_config(
     """Make a telescope config file."""
     config = f"""
 beam_paths:
-  0: '{utils.BEAMDIR}/NF_HERA_Vivaldi_efield_beam_extrap.fits'
+  0: !UVBeam
+    filename: '{utils.BEAMDIR}/NF_HERA_Vivaldi_efield_beam_extrap.fits'
 telescope_location: {str(utils.HERA_LOC)}
 telescope_name: HERA
 freq_interp_kind: '{freq_interp_kind}'

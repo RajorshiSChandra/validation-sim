@@ -29,7 +29,7 @@ def cli():
 
 @cli.command
 @_cli.opts.add_opts
-@click.option("--simulator", type=click.Choice(["fftvis", "matvis", "fftvis64", "fftvis32"]), default="matvis")
+@click.option("--simulator", type=click.Choice(["fftvis", "matvis", "fftvis64", "fftvis32", "matvis-cpu"]), default="matvis")
 def runsim(channels, freq_range, **kwargs):
     """Run HERA validation simulations.
 
