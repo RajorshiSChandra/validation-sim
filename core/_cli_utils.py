@@ -87,7 +87,16 @@ class opts:
         help="ants to use as a subset of the full HERA 350",
         expose_value=False,
     )
-
+    ideal_layout = click.option(
+        "--ideal-layout/--not-ideal-layout",
+        default=True,
+        help="Whether to use an idealized layout that has perfect redundancy"
+    )
+    redundant = click.option(
+        "--redundant/--not-redundant",
+        default=False,
+        help="whether to use only redundant baselines in the simulation (not just in writing file)"
+    )
     channels = click.option(
         "-fch",
         "--channels",
@@ -170,11 +179,27 @@ class opts:
         show_default=True,
         help="Order of the spatial spline interpolation",
     )
+    beam_interpolator = click.option(
+        "--beam-interpolator",
+        default="RectBivariateSpline",
+        type=click.Choice(["RectBivariateSpline", "map_coordinates"]),
+        show_default=True,
+        help="The interpolation function to use for beam interpolation",
+    )
     profile = click.option(
         "--profile/--no-profile", default=False, help="Run line-profiling"
     )
+    profile_timer_unit = click.option(
+        "--profile-timer-unit", default=1e-2, help="Timer unit (in sec) for profiling", type=float
+    )
     dry_run = click.option(
         "-d", "--dry-run", is_flag=True, help="Pass the flag to hera-sim-vis.py"
+    )
+    prefix = click.option(
+        "--prefix", default="", help='prefix to put in the directory name'
+    )
+    phase_center_name = click.option(
+        "--phase-center-name", default="zenith", help='name for the phase center'
     )
 
     @classmethod
@@ -201,6 +226,7 @@ def _get_sbatch_program(gpu: bool, slurm_override=None):
     sbatch = "\n".join([f"#SBATCH --{k}={v}" for k, v in slurm_params.items()])
 
     conda = """
+source ~/.bashrc
 source {conda_path}/bin/activate
 conda activate {environment_name}
 """.format_map(

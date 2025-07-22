@@ -238,7 +238,11 @@ def chunk_files(
     freqs = []
     for ch in channels:
         meta = raw_files[ch][0]
-        freqs.append(meta.freq_array)
+        try:
+            freqs.append(meta.freq_array)
+        except OSError as e:
+            raise IOError(f"{str(e)} in file {meta.path}") from e
+        
     freqs = np.concatenate(freqs)
 
     # Get the times we're gonna use.

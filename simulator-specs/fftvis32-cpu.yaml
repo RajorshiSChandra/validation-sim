@@ -1,0 +1,9 @@
+simulator: FFTVis
+precision: 2
+check_antenna_conjugation: false
+interpolation_function: "az_za_map_coordinates"
+flat_array_tol: 8.0
+nprocesses: 32
+coord_method: CoordinateRotationERFA
+coord_method_params:
+  update_bcrs_every: 100000000

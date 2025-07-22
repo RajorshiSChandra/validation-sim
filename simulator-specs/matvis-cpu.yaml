@@ -1,0 +1,6 @@
+simulator: MatVis
+precision: 2
+coord_method: CoordinateRotationERFA
+coord_method_params:
+  update_bcrs_every: 100000000
+check_antenna_conjugation: false

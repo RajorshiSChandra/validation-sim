@@ -8,11 +8,7 @@ import click
 from rich.logging import RichHandler
 
 from core import _cli_utils as _cli
-from core import sky_model as sm
 from core import utils
-from core.obsparams import make_hera_obsparam
-from core.run_sim import run_validation_sim
-
 logging.basicConfig(
     level="NOTSET",
     format="%(message)s",
@@ -31,38 +27,54 @@ def cli():
     pass
 
 
+@cli.command
 @_cli.opts.add_opts
+@click.option("--simulator", type=click.Choice(["fftvis", "matvis", "fftvis64", "fftvis32", "matvis-cpu"]), default="matvis")
 def runsim(channels, freq_range, **kwargs):
     """Run HERA validation simulations.
 
     Use the default parameters, configuration files, and directories for HERA sims
     (see make_obsparams.py).
     """
-    channels = _cli.parse_channels(channels, freq_range)
+    from core.run_sim import run_validation_sim
 
+    channels = _cli.parse_channels(channels, freq_range)
+    if 'beam_interpolator' in kwargs:
+        del kwargs['beam_interpolator']
     run_validation_sim(channels=channels, **kwargs)
 
 
 @cli.command("make-obsparams")
 @_cli.opts.layout
 @_cli.opts.ants
+@_cli.opts.ideal_layout
 @_cli.opts.channels
 @_cli.opts.freq_range
 @_cli.opts.sky_model
 @_cli.opts.n_time_chunks
 @_cli.opts.spline_interp_order
+@_cli.opts.redundant
+@_cli.opts.do_time_chunks
+@click.option("--beam-interpolator", default='az_za_map_coordinates')
 def make_obsparams(
-    layout, freq_range, channels, sky_model, n_time_chunks, spline_interp_order
+    layout, ideal_layout, freq_range, channels, sky_model, n_time_chunks, 
+    spline_interp_order, beam_interpolator, redundant, do_time_chunks
 ):
     """Make obsparams for H4C simulations given a sky model and frequencies."""
+    from core.obsparams import make_hera_obsparam
+
     channels = _cli.parse_channels(channels, freq_range)
 
     make_hera_obsparam(
         layout=layout,
+        ideal_layout=ideal_layout,
         channels=channels,
         sky_model=sky_model,
         chunks=n_time_chunks,
         spline_interp_order=spline_interp_order,
+        beam_interpolator=beam_interpolator,
+        redundant=redundant,
+        do_chunks=do_time_chunks
     )
 
 
@@ -80,6 +92,7 @@ option_nside = click.option("--nside", default=256, show_default=True)
 @click.option("--local/--slurm", default=False)
 @click.option("--split-freqs/--no-split-freqs", default=False)
 @click.option("--label", default="")
+@click.option("--with-confusion/--no-confusion", default=True)
 def sky_model(
     sky_model,
     freq_range,
@@ -91,28 +104,35 @@ def sky_model(
     skip_existing,
     dry_run,
     label,
+    with_confusion,
 ):
     """Make SkyModel at given frequencies.
 
     Frequencies are based on H4C data.
     Outputs are written to the default directories, i.e. "./sky_models/<type>".
     """
+
     channels = _cli.parse_channels(channels, freq_range)
     if local:
+        from core import sky_model as sm
+
         if sky_model == "gsm":
             sm.make_gsm_model(channels, nside, label=label)
         elif sky_model == "diffuse":
-            sm.make_diffuse_model(channels, nside, label=label)
+            sm.make_diffuse_model(channels, nside, with_confusion=with_confusion, label=label)
         elif sky_model == "ptsrc":
             sm.make_ptsrc_model(channels, nside, label=label)
         elif sky_model == "grf-eor":
             sm.make_grf_eor_model(
-                f"healpix-maps{nside}{label}.h5", channels=channels, label=label
+                f"healpix-maps{nside}{label}.h5",
+                channels=channels,
+                label=label,
             )
         else:
             raise ValueError(f"Unknown sky model: {sky_model}")
     else:
-        sm.run_make_sky_model(
+        from core.run_sky_model import run_make_sky_model
+        run_make_sky_model(
             sky_model,
             channels,
             nside,
@@ -121,9 +141,30 @@ def sky_model(
             dry_run=dry_run,
             split_freqs=split_freqs,
             label=label,
+            with_confusion=with_confusion,
         )
 
+@cli.command
+@click.option('--nside', type=int, required=True)
+@click.option('--seed', type=int, default=2038)
+@click.option("--low-memory/--fast-cpu", default=True)
+@click.option("--local/--slurm", default=False)
+def grf_realization(nside, seed, local, low_memory):
+    from core.grf_realization import run_compute_grf_realization
+    run_compute_grf_realization(nside=nside, seed=seed, low_memory=low_memory)
 
+@cli.command
+@click.option('--test-mode/--production', default=False)
+@click.option('--ell-max', default=1250)
+@click.option("--local/--slurm", default=False)
+def grf_covariance(test_mode, ell_max, local):
+    from core.grf_covariance import compute_grf_covariance, run_compute_grf_covariance
+    
+    if local:
+        compute_grf_covariance(test_mode, ell_max=ell_max)
+    else:
+        run_compute_grf_covariance(test_mode, ell_max=ell_max)
+        
 @cli.command("cornerturn")
 @_cli.opts.sky_model
 @click.option("-c", "--time-chunk", default=0)
@@ -146,6 +187,8 @@ def sky_model(
 @_cli.opts.log_level
 @_cli.opts.dry_run
 @_cli.opts.slurm_override
+@_cli.opts.redundant
+@_cli.opts.prefix
 def cornerturn(
     sky_model,
     time_chunk,
@@ -159,6 +202,8 @@ def cornerturn(
     channels: str | None,
     log_level: str,
     layout: str,
+    redundant: bool,
+    prefix: str    
 ):
     """Perform a cornerturn on simulation files.
 
@@ -177,30 +222,23 @@ def cornerturn(
     log_dir.mkdir(parents=True, exist_ok=True)
 
     if direc is None:
-        simdir = utils.OUTDIR / utils.VIS_DIRFMT.format(
-            sky_model=sky_model, chunks=nchunks_sim, layout=layout
+        simdir = utils.OUTDIR / utils.get_direc(
+            sky_model=sky_model, chunks=nchunks_sim, layout=layout,
+            redundant=redundant, prefix=prefix,
         )
     else:
         simdir = Path(direc)
 
-    outdir = (
-        utils.OUTDIR
-        / utils.VIS_DIRFMT.format(
-            sky_model=sky_model, chunks=nchunks_sim, layout=layout
-        )
-        / "rechunk"
-    )
+    outdir = simdir / "rechunk"
     outdir.mkdir(parents=True, exist_ok=True)
 
     conjugate = "--conjugate" if conjugate else ""
     remove_cross_pols = "--remove-cross-pols" if remove_cross_pols else ""
 
     if channels is None:
-        allfiles = sorted(
-            simdir.glob(
-                f"{sky_model}_fch????_nt17280_chunk{time_chunk:03d}_{layout}.uvh5"
-            )
-        )
+        print(simdir)
+        print(simdir.glob("*"))
+        allfiles = sorted(simdir.glob(f"fch????_chunk{time_chunk:05d}.uvh5"))
         maxchan = int(allfiles[-1].name.split("fch")[1][:4])
         if len(allfiles) != maxchan + 1:
             raise ValueError(f"Missing files in {simdir}")
@@ -222,7 +260,7 @@ def cornerturn(
         ("nodes", "1"),
         ("ntasks", "1"),
         ("cpus-per-task", "16"),
-        ("mem", "16GB"),
+        ("mem", "31GB"),
         ("time", estimated_time),
     )
 
@@ -230,7 +268,7 @@ def cornerturn(
 
     cmd = f"""
     time python core/rechunk-fast.py \
-    --r-prototype "{sky_model}_fch{{channel:04d}}_nt17280_chunk{time_chunk:03d}_{layout}.uvh5" \
+    --r-prototype "fch{{channel:04d}}_chunk{time_chunk:05d}.uvh5" \
     --chunk-size {new_chunk_size} \
     --channels {channels} \
     --sky-cmp {sky_model}\

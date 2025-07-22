@@ -1,6 +1,5 @@
 """Utilities for creating sky models."""
 import logging
-import subprocess
 from functools import cache, cached_property
 
 import h5py
@@ -16,7 +15,6 @@ from scipy.interpolate import InterpolatedUnivariateSpline
 from scipy.stats import gaussian_kde
 
 from . import utils
-from ._cli_utils import _get_sbatch_program
 
 logger = logging.getLogger(__name__)
 
@@ -74,7 +72,9 @@ def dnds_franzen(s, a=None, norm=False):
         return s**-2.5 * out
 
 
-def make_grf_eor_model(model_file: str, channels: list[int], label: str = ""):
+def make_grf_eor_model(
+    model_file: str, channels: list[int], label: str = ""
+):
     """Make a GRF EoR SkyModel.
 
     The model file is here assumed to contain Nfreqs healpix maps. The format of the
@@ -84,22 +84,16 @@ def make_grf_eor_model(model_file: str, channels: list[int], label: str = ""):
     model_dir = utils.SKYDIR / "eor"
 
     with h5py.File(model_dir / model_file, "r") as fl:
-        nside = int(fl["nside"][()])
-        freqs = fl["frequencies_mhz"][:] * 1e6 << units.Hz  # units Hz
+        shape =  fl['healpix_maps'].shape
+        nside = int(np.sqrt(shape[1]/12))
+        
+    freqs = H4C_FREQS.copy()
+#        freqs = fl["frequencies_mhz"][:] * 1e6 << units.Hz  # units Hz
 
         # HEALPix array -- dimension (nfreqs, npix) -- unit Jy/sr
         # We must read in the whole thing to set the monopole.
-        hmaps = fl["healpix_maps_Jy_per_sr"][:, :]
-
-    hmaps <<= units.Jy / units.sr
 
     npix = hp.nside2npix(nside)
-
-    # Shift the maps values so there are no negative values
-    # Note: we move the WHOLE sky at ALL frequencies up by a set amount so that the
-    # minimum value is positive
-    # We do not move parts of the map by different amounts.
-    hmaps -= hmaps.min()
 
     # Initialize stokes array
     stokes = np.zeros((4, 1, npix)) * units.Jy / units.sr
@@ -123,7 +117,13 @@ def make_grf_eor_model(model_file: str, channels: list[int], label: str = ""):
 
     for fch in channels:
         logger.info(f"Constructing channel {fch}")
-        eor_model.stokes[0, 0] = hmaps[fch]
+        with h5py.File(model_dir / model_file, 'r') as fl:
+            
+            hmaps = fl["healpix_maps"][fch]
+
+        hmaps <<= units.Jy / units.sr
+
+        eor_model.stokes[0, 0] = hmaps
         eor_model.freq_array[0] = freqs[fch]
 
         eor_model.write_skyh5(outdir / f"fch{fch:04d}.skyh5", clobber=True)
@@ -569,14 +569,14 @@ def make_gsm_model(channels: list[int], nside: int = 256, label="") -> SkyModel:
         write_sky(gsm_model, f"gsm_nside{nside}{label}", fch)
 
 
-def make_diffuse_model(channels: int, nside: int = 256, label="") -> SkyModel:
+def make_diffuse_model(channels: int, nside: int = 256, with_confusion=True, label="") -> SkyModel:
     """Make a diffuse SkyModel (GSM + confusion at a given frequency channel."""
     freqs = H4C_FREQS[channels]
     gsm = GlobalSkyModel(freq_unit=freqs[0].unit)
 
     for fch, freq in zip(channels, freqs):
         gsm_map = make_gsm_map(freq, nside=nside, smooth=True, gsm=gsm)
-        confusion_map = make_confusion_map(freq, nside=nside)
+        confusion_map = make_confusion_map(freq, nside=nside) if with_confusion else 0
         diffuse_map = gsm_map + confusion_map
         diffuse_model = make_healpix_type_sky_model(
             diffuse_map, freq, nside, inframe="galactic", outframe="icrs", to_point=True
@@ -584,112 +584,3 @@ def make_diffuse_model(channels: int, nside: int = 256, label="") -> SkyModel:
         write_sky(diffuse_model, f"diffuse_nside{nside}{label}", fch)
 
 
-def run_make_sky_model(
-    sky_model: str,
-    channels: list[int],
-    nside: int,
-    slurm_override: tuple[tuple[str, str]],
-    skip_existing: bool,
-    dry_run: bool,
-    split_freqs: bool = False,
-    label: str = "",
-):
-    """Run the sky model creation via SLURM."""
-    model = f"{sky_model}{nside}"
-    out_dir = utils.SKYDIR / f"{model}"
-    logdir = utils.LOGDIR / f"skymodel/{model}"
-
-    logdir.mkdir(parents=True, exist_ok=True)
-
-    # We want to override the job-name to be <sky_model>-<fch>-<ch>, but the last two
-    # variables have to be accessed in the loop, so we will be instead override it to
-    # a Python string formatting pattern and format it in the loop.
-    # Note that click default `slurm_overrride` to (), and we want it to be "2D" tuple
-    slurm_override = slurm_override + (
-        ("job-name", "{sky_model}-fch{fch:04d}" if split_freqs else sky_model),
-        (
-            "output",
-            "{logdir}/fch{fch:04d}_%J.out" if split_freqs else "{logdir}/%J.out",
-        ),
-    )
-
-    if "time" not in [x[0] for x in slurm_override]:
-        slurm_override = slurm_override + (("time", "0-00:15:00"),)
-
-    # Make the SBATCH script minus hera-sim-vis.py command
-    program = _get_sbatch_program(gpu=False, slurm_override=slurm_override)
-
-    sbatch_dir = utils.REPODIR / "batch_scripts/skymodel"
-    sbatch_dir.mkdir(parents=True, exist_ok=True)
-
-    if split_freqs:
-        for fch in channels:
-            logger.info(f"Working on frequency channel {fch}")
-
-            outfile = out_dir / f"fch{fch:04d}.skyh5"
-
-            # Check if output file already existed, if clobber is False
-            if skip_existing and outfile.exists():
-                logger.warning(f"File {outfile} exists, skipping")
-                continue
-
-            cmd = f"time python vsim.py sky-model {sky_model} --local --nside {nside} --freq-range {fch} {fch+1} --label '{label}'"
-
-            if utils.HPC_CONFIG["slurm"]:
-                # Write job script and submit
-                sbatch_file = sbatch_dir / f"{sky_model}_fch{fch:04d}.sbatch"
-
-                logger.info(f"Creating sbatch file: {sbatch_file}")
-                # Now, join the job script with the hera-sim-vis.py command
-                # and format the job-name
-                job_script = "\n".join([program, "", cmd, ""]).format(
-                    sky_model=sky_model, fch=fch, logdir=logdir
-                )
-                with open(sbatch_file, "w") as fl:
-                    fl.write(job_script)
-
-                if not dry_run:
-                    subprocess.call(f"sbatch {sbatch_file}".split())
-
-                logger.debug(f"\n===Job Script===\n{job_script}\n===END===\n")
-            else:
-                logger.info(f"Running the simulation locally\nCommand: {cmd}")
-                if not dry_run:
-                    subprocess.call(cmd.split())
-    else:
-        channels = sorted(channels)
-        groups = [[channels[0]]]
-        for ch in channels[1:]:
-            if ch == groups[-1][-1] + 1:
-                groups[-1].append(ch)
-            else:
-                groups.append([ch])
-
-        chan_opt = ""
-        for g in groups:
-            if len(g) == 1:
-                chan_opt += f"--channels {g[0]} "
-            else:
-                chan_opt += f"--channels {g[0]}~{g[-1]+1}"
-
-        cmd = f"time python vsim.py sky-model {sky_model} --local --nside {nside} --label '{label}' {chan_opt}"
-
-        if utils.HPC_CONFIG["slurm"]:
-            # Write job script and submit
-            sbatch_file = sbatch_dir / f"{sky_model}_allfreqs.sbatch"
-
-            logger.info(f"Creating sbatch file: {sbatch_file}")
-            job_script = "\n".join([program, "", cmd, ""]).format(
-                sky_model=sky_model, logdir=logdir
-            )
-            with open(sbatch_file, "w") as fl:
-                fl.write(job_script)
-
-            if not dry_run:
-                subprocess.call(f"sbatch {sbatch_file}".split())
-
-            logger.debug(f"\n===Job Script===\n{job_script}\n===END===\n")
-        else:
-            logger.info(f"Running the simulation locally\nCommand: {cmd}")
-            if not dry_run:
-                subprocess.call(cmd.split())

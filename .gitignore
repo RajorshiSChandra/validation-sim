@@ -24,3 +24,9 @@ tmp/
 *.nsys-rep
 *.sqlite
 batch_scripts/
+profiling/
+memray-*
+*.flame
+AFalse_*
+ATrue_*
+beams/*.fits

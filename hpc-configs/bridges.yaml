@@ -1,13 +1,10 @@
 # Template for HPC config for run_sim.py
 # None-number values should be quoted 
 
-paths:
-  beams: "/ocean/projects/phy210034p/sgm/hera-beams/NicolasFagnoniBeams"
-
 conda:
   # Path will be resolved
-  conda_path: "~/miniconda3"
-  environment_name: "h6c"
+  conda_path: "/ocean/projects/phy210034p/sgm/miniforge3"
+  environment_name: "h6c-sim"
 
 module:
   # List environment modules to load
@@ -18,9 +15,8 @@ slurm:
   # SLURM SBATCH options, listed as --flag: value
   # Flags not shown here should work
   cpu:
-    partition: "RM"  # Name of partition
+    partition: "RM-shared"  # Name of partition
     nodes: 1  # Number of nodes
-    mem: "24GB"  # Memory with unit
     ntasks: 1  # Number of tasks
     time: "0-00:60:00"  # slurm-aware time string format
   gpu:

@@ -3,6 +3,7 @@
 import logging
 from os import environ
 from pathlib import Path
+from parse import parse
 
 import numpy as np
 import yaml
@@ -20,23 +21,60 @@ HPCDIR = REPODIR / "hpc-configs"
 OBSPDIR = CFGDIR / "obsparams"
 COMPRESSDIR = REPODIR / "compression-cache"
 LOGDIR = REPODIR / "logs"
+BEAMDIR = REPODIR / "beams"
 
+DIRFMT = "{sky_model}/{prefix}/nt17280-{chunks:05d}chunks-{layout}-{redundant}"
+FLFMT = "fch{fch:04d}_chunk{ch:05d}"
 
-DIRFMT = "{sky_model}/nt17280-{chunks:03d}chunks-{layout}"
-FLFMT = "{sky_model}_fch{fch:04d}_nt17280_chunk{ch:03d}_{layout}"
+def get_direc(sky_model:str, chunks: int, layout: str, redundant: bool, prefix: str = 'default'):
+    return Path(
+        DIRFMT.format(
+        sky_model=sky_model, prefix=prefix, chunks=chunks, layout=layout,
+        redundant="red" if redundant else 'nonred'
+    ))
+    
+def get_file(chunk: int, channel: int, with_dir: bool = True, ext: str = None, **kw):
+    stem = FLFMT.format(fch=channel, ch=chunk)
 
-OBSPARAM_DIRFMT = DIRFMT
-OBSPARAM_FLFMT = FLFMT
+    fl = get_direc(**kw) / stem if with_dir else Path(stem)
+    if ext:
+        fl = fl.with_suffix(ext)
+    return fl
+    
+def parse_fname(fname):
+    return parse(FLFMT, fname).named
 
-VIS_DIRFMT = DIRFMT
-VIS_FLFMT = FLFMT
+def parse_direc(direc: Path):
+    parents = direc.parents
+    if len(parents)>2:
+        name = str(direc.relative_to(parents[2]))
+    else:
+        name = str(direc.relative_to(parents[1]))
+    return parse(DIRFMT, name).named
 
+def parse_path(path: Path, only_model: bool = False):
+    path = Path(path)
+    
+    if not path.exists():
+        raise ValueError(f"Path {path} does not exist.")
+    
+    if path.is_file():
+        if only_model:
+            out = parse_direc(path.parent)
+        else:
+            out = parse_fname(path.stem) | parse_direc(path.parent)
+    else:
+        out = parse_direc(path)
+    
+    if not out:
+        raise ValueError(f"path {path} did not adhere to any specifications")
+    
 COMPRESS_FMT = "ch{chunks}_{layout_file}.npy"
 
 HPC = environ.get("VALIDATION_SYSTEM_NAME")
 
 if HPC is None:
-    logger.warn(
+    logger.warning(
         "You must set the VALIDATION_SYSTEM_NAME environment variable to your system "
         "name, corresponding to a file in hpc-configs. Assuming local system.",
     )
@@ -48,6 +86,7 @@ else:
 LAYOUTDIR = CFGDIR / "array_layouts"
 
 FULL_HERA_LAYOUT = LAYOUTDIR / "array_layout_hera_350.txt"
+IDEAL_HERA_LAYOUT = LAYOUTDIR / "array_layout_hera_350_ideal.txt"
 
 ANTS_DICT = {
     "H4C": np.genfromtxt(LAYOUTDIR / "h4c_ants.txt").astype(int),
@@ -79,7 +118,7 @@ VALIDATION_SIM_START_TIME = 2458208.916228965
 HERA_LOC = (-30.72152612068957, 21.428303826863015, 1051.6900000218302)
 
 
-def make_hera_layout(name: str, ants: np.ndarray | None = None) -> Path:
+def make_hera_layout(name: str, ants: np.ndarray | None = None, ideal: bool = True) -> Path:
     """Create a HERA layout."""
     if ants is None:
         ants = ANTS_DICT[name.upper()]
@@ -88,7 +127,7 @@ def make_hera_layout(name: str, ants: np.ndarray | None = None) -> Path:
     if not direc.exists():
         direc.mkdir()
 
-    full_layout = np.genfromtxt(FULL_HERA_LAYOUT, skip_header=1)
+    full_layout = np.genfromtxt(IDEAL_HERA_LAYOUT if ideal else FULL_HERA_LAYOUT, skip_header=1)
 
     with open(direc / f"{name}.txt", "w") as fl:
         fl.write("Name    Number  BeamID  E       N       U\n")
