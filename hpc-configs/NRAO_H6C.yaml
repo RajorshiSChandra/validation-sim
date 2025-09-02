@@ -1,0 +1,29 @@
+# Template for HPC config for run_sim.py
+# None-number values should be quoted 
+
+paths:
+  beams: "/lustre/aoc/projects/hera/rchandra/H6C_Validation_Stats/hera-beams/beams"
+conda:
+  # Path will be resolved
+  conda_path: "/home/rasch/anaconda3"
+  environment_name: "myenv_validation_1"
+
+module:
+  # List environment modules to load
+  - "mpi"
+
+slurm:
+  # SLURM SBATCH options, listed as --flag: value
+  # Flags not shown here should work
+  # There is no GPU on NRAO!
+  cpu:
+    partition: "batch"  # Name of partition
+    nodes: 1  # Number of nodes
+    mem: "240GB"  # Memory with unit
+    ntasks: 16  # Number of tasks
+    time: "0-04:00:00"  # slurm-aware time string format
+
+  # sky-model:
+  #   time: "0-04:00:00"
+
+    
