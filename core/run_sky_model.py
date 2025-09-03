@@ -35,9 +35,18 @@ def run_make_sky_model(
         ),
     )
 
-    if "time" not in [x[0] for x in slurm_override]:
-        slurm_override = slurm_override + (("time", "0-00:15:00"),)
+    # if "time" not in [x[0] for x in slurm_override]:
+    #     slurm_override = slurm_override + (("time", "0-00:15:00"),)
 
+    # Precedence for sbatch walltime:
+    # 1) CLI : slurm-override 
+    # 2) Default : hpc-sonfig/*.yaml
+    # 3) Fallback : run_sky_model.py 
+    have_cli_time = any(k == "time" for k, _ in slurm_override)
+    yaml_time = ( utils.HPC_CONFIG.get("slurm", {}).get("sky-model", {}).get("time") or utils.HPC_CONFIG.get("slurm", {}).get("cpu", {}).get("time") )
+    if not have_cli_time and not yaml_time:
+        slurm_override = slurm_override + (("time", "0-00:15:00"),)
+    
     # Make the SBATCH script minus hera-sim-vis.py command
     program = _get_sbatch_program(gpu=False, slurm_override=slurm_override)
 
