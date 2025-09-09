@@ -35,9 +35,6 @@ def run_make_sky_model(
         ),
     )
 
-    # if "time" not in [x[0] for x in slurm_override]:
-    #     slurm_override = slurm_override + (("time", "0-00:15:00"),)
-
     # Precedence for sbatch walltime:
     # 1) CLI : slurm-override 
     # 2) Default : hpc-sonfig/*.yaml
