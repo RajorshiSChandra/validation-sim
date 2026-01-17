@@ -1,0 +1,2 @@
+nohup: ignoring input
+python: can't open file '/lustre/aoc/projects/hera/rchandra/H6C_Validation_Stats/validation-sim/concat_uvh5.py': [Errno 2] No such file or directory

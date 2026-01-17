@@ -1,0 +1,12 @@
+ant_number,beam_file
+0,/abs/path/to/beams/beam_000.h5
+1,/abs/path/to/beams/beam_001.h5
+2,/abs/path/to/beams/beam_002.h5
+3,/abs/path/to/beams/beam_003.h5
+4,/abs/path/to/beams/beam_004.h5
+5,/abs/path/to/beams/beam_005.h5
+6,/abs/path/to/beams/beam_006.h5
+7,/abs/path/to/beams/beam_007.h5
+8,/abs/path/to/beams/beam_008.h5
+9,/abs/path/to/beams/beam_009.h5
+

@@ -19,13 +19,16 @@ def calculate_expected_time(chunks: int) -> int:
     Calibrated to Bridges GPU.
     """
     nt = 17280 // chunks
-
-    # 5 min buffer + (nt / 5760) * 1 hr
-    return int(max(5, (nt / 5760) * 60))
+    scale_time = 2
+    ceiling = 900    # 5 mins
+    # ceiling min buffer + (nt / 5760) * 1 hr
+    print("Calculated time is ", max(ceiling, (nt / 5760) * 60))
+    return int(max(ceiling, (nt / 5760) * 60 * scale_time))
 
 
 def run_validation_sim(
     layout: str,
+    ants: list[int],
     channels: list[int],
     sky_model: str,
     n_time_chunks: int,
@@ -45,6 +48,8 @@ def run_validation_sim(
     redundant: bool = False,
     prefix: str ="default",
     phase_center_name: str = 'zenith',
+    beam_map_csv: Path | None = None,
+    beamvar_type: str = 'beamdflt',
 ):
     """Run a full validation sim on SLURM compute."""
     sgpu = "gpu" if gpu else "cpu"
@@ -59,6 +64,16 @@ def run_validation_sim(
 
     logger.info(f"Frequency channels to run: {channels}")
 
+    # ---- Gate per-antenna beams to matvis-only (incl. matvis-cpu from CLI) ----
+    is_matvis = isinstance(simulator, str) and simulator.lower().startswith("matvis")
+    if beam_map_csv is not None and not is_matvis:
+        logger.warning(
+            "[run_validation_sim] Per-antenna beams requested via %s, "
+            "but simulator=%r is not matvis; ignoring and using single-beam teleconfig.",
+            beam_map_csv, simulator
+        )
+        beam_map_csv = None
+
     layout_file = make_hera_obsparam(
         layout=layout,
         ideal_layout=ideal_layout,
@@ -72,20 +87,36 @@ def run_validation_sim(
         beam_interpolator=sc.get('interpolation_function', 'az_za_map_coordinates'),
         redundant=redundant,
         prefix=prefix,
+#        simulator=simulator,
+        beam_map_csv=beam_map_csv,
+        beamvar_type=beamvar_type,
     )
     if not layout_file.exists():
         raise ValueError(f"Error in creating layout file: {layout_file}")
     else:
         print(f"Created layout file at {layout_file}")
+        
+    effective_layout_key = layout_file.stem  # matches obsparam/outdir modeldir naming
+    print("layout_file is ", layout_file)
+    print("effective_layout_key is ", effective_layout_key)
 
     if not do_time_chunks:
         do_time_chunks = list(range(n_time_chunks))
 
     time_est = calculate_expected_time(n_time_chunks)
 
+    print("layout_file is ", layout_file)
+    # Use 1 to ensure latest layout file reflects in directory name
+    # 1
     modeldir = utils.get_direc(
-        sky_model=sky_model, chunks=n_time_chunks, layout=layout, redundant=redundant, prefix=prefix
+        sky_model=sky_model, chunks=n_time_chunks, layout=effective_layout_key, redundant=redundant, prefix=prefix, 
+        beamvar_type=beamvar_type,
     )
+    # 2
+    # modeldir = utils.get_direc(
+    #     sky_model=sky_model, chunks=n_time_chunks, layout=layout_file, redundant=redundant, prefix=prefix
+    # )
+    print("modeldir is ", modeldir)
 
     # We want to override the job-name to be <sky_model>-<fch>-<ch>, but the last two
     # variables have to be accessed in the loop, so we will be instead override it to
@@ -113,14 +144,22 @@ def run_validation_sim(
     compress_cache = utils.COMPRESSDIR / utils.COMPRESS_FMT.format(
         chunks=n_time_chunks, layout_file=layout_file.stem
     )
+    print("compress_cache ", compress_cache)
     if not utils.COMPRESSDIR.exists():
         utils.COMPRESSDIR.mkdir(parents=True)
 
     # Option for hera-sim-vis.py. Let's just keep this fixed.
     sim_options = f"--normalize_beams --fix_autos --log-level {log_level} --phase-center-name {phase_center_name}"
     
-    if not redundant:
-        sim_options += f" --compress {compress_cache}"
+    # This section checks if we are doing a redundant sim or not.
+    # If not redundant, we add the compress cache option to the sim_options. 
+    # However this does not not mean that compression is avoided. There is still inbuilt compression of redundant baselines
+    # if the ant pos are redundant. It does not bother with beam non redundancy. 
+    # This is performed in hera-sim-vis.py automatically if it detects a valid --compress input.
+    # For ensuring redundant baselines are retained without hera-sim overhaul, one has to avoid sending --compress option at all. 
+    # if not redundant:
+    #     sim_options += f" --compress {compress_cache}"
+    #     print("not redundant")
 
     for fch in channels:
         for ch in do_time_chunks:
@@ -182,6 +221,9 @@ def run_validation_sim(
                 f"{trace}hera-sim-vis.py {sim_options} {profilestr} {obsp} "
                 f"{simulator_config}"
             )
+            # MPI version : using pyuvsim only
+            # cmd = (f"{trace}srun -n $SLURM_NTASKS hera-sim-vis.py {sim_options} {profilestr} {obsp} {simulator_config}" )
+
 
             if utils.HPC_CONFIG["slurm"]:
                 # Write job script and submit
@@ -194,9 +236,26 @@ def run_validation_sim(
                 logger.info(f"Creating sbatch file: {sbatch_file}")
                 # Now, join the job script with the hera-sim-vis.py command
                 # and format the job-name
-                job_script = "\n".join([program, "", cmd, ""]).format(
-                    jobname=jobname, logdir=utils.LOGDIR / 'vis'
-                )
+                # Bash bootstrap to set thread count from SLURM, with braces escaped for .format()
+                thread_bootstrap = "\n".join([
+                    # Prefer cpus-per-task; fallback to ntasks; else 16
+                    'THREADS="${{SLURM_CPUS_PER_TASK:-${{SLURM_NTASKS:-16}}}}"',
+                    'echo "[vsim] SLURM_CPUS_PER_TASK=$SLURM_CPUS_PER_TASK '
+                    'SLURM_NTASKS=$SLURM_NTASKS -> THREADS=$THREADS"',
+                    'export OMP_NUM_THREADS="$THREADS"',
+                    'export MKL_NUM_THREADS="$THREADS"',
+                    'export OPENBLAS_NUM_THREADS="$THREADS"',
+                    'export NUMEXPR_NUM_THREADS="$THREADS"',
+                    ""
+                ])
+                THREADS="${SLURM_CPUS_PER_TASK:-${SLURM_NTASKS:-16}}"
+                job_script = "\n".join([
+                    program,
+                    "",
+                    thread_bootstrap,
+                    cmd, 
+                    ""
+                    ]).format(jobname=jobname, logdir=utils.LOGDIR / 'vis')
                 with open(sbatch_file, "w") as fl:
                     fl.write(job_script)
 

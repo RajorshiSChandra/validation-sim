@@ -5,6 +5,7 @@ from hashlib import md5
 from pathlib import Path
 import yaml
 import numpy as np
+import re
 
 from . import utils
 
@@ -18,41 +19,201 @@ NTIMES, INTEGRATION, START_TIME = (
 
 CONTEXT_SETTINGS = {"help_option_names": ["-h", "--help"]}
 
+# Load CSV file with BeamID per antenna
+def read_beam_map_csv(beam_map_csv: Path) -> dict[int, Path]:
+    """Return {ant_number: Path(beam_file)} from a 2-column CSV."""
+    import csv
+    mapping: dict[int, Path] = {}
+    with open(beam_map_csv, newline="") as f:
+        reader = csv.DictReader(f)
+        if "ant_number" not in reader.fieldnames or "beam_file" not in reader.fieldnames:
+            raise ValueError("beam_map_csv must have column names: ant_number, beam_file")
+        for row in reader:
+            ant = int(row["ant_number"])
+            mapping[ant] = Path(row["beam_file"]).expanduser().resolve()
+    if not mapping:
+        raise ValueError("beam_map_csv was empty.")
+    return mapping
+
+
+#def write_array_with_beamids(src_layout: Path, beamid_by_ant: dict[int, int]) -> Path:
+    #"""
+    #Read the tab-delimited layout produced by utils.make_hera_layout and
+    #write a copy that includes a BeamID column. Return the new file path.
+    #"""
+    ## Expect TSV with header (delimiter='\t')
+    #header = Path(src_layout).read_text().splitlines()[0].split('\t')
+    ## Check for required columns
+    #musthave = {"Name", "Number", "E", "N", "U"}
+##    musthave = {'Name    Number  BeamID  E       N       U'}
+    #if not musthave.issubset(set(header)):
+        #raise ValueError(f"{src_layout} missing required columns {musthave}. Got: {header}")
+#
+    #lines = Path(src_layout).read_text().splitlines()
+    #cols = header
+    #need_inject = "BeamID" not in cols
+    #if need_inject:
+        ## insert BeamID after 'Number' for readability
+        #insert_at = cols.index("Number") + 1
+        #cols = cols[:insert_at] + ["BeamID"] + cols[insert_at:]
+#
+    #out = []
+    #out.append('\t'.join(cols))
+    ## Map name->index for existing columns
+    #idx = {c: i for i, c in enumerate(lines[0].split('\t'))}
+#
+    #for line in lines[1:]:
+        #if not line.strip():
+            #continue
+        #parts = line.split('\t')
+        #ant_num = int(float(parts[idx["Number"]]))  # Number column may be float-y
+        #beamid = beamid_by_ant.get(ant_num)
+        #if beamid is None:
+            #raise ValueError(f"No BeamID mapping provided for antenna Number={ant_num}")
+        #if need_inject:
+            #parts = parts[:idx["Number"]+1] + [str(beamid)] + parts[idx["Number"]+1:]
+        #else:
+            #parts[idx["BeamID"]] = str(beamid)
+        #out.append('\t'.join(parts))
+#
+    #dst = src_layout.with_suffix(src_layout.suffix + ".with_beamids")
+    #Path(dst).write_text('\n'.join(out) + '\n')
+    #return dst
+
+def write_array_with_beamids(src_layout: Path, beamid_by_ant: dict[int, int]) -> Path:
+    """
+    Read a whitespace-separated array layout (header: Name Number [BeamID] E N U ...),
+    inject/overwrite a BeamID column, and write a tab-separated copy.
+
+    Returns the new path (src.with_suffix(src.suffix + '.with_beamids')).
+    """
+    lines = Path(src_layout).read_text().splitlines()
+    if not lines:
+        raise ValueError(f"{src_layout} is empty.")
+
+    # Split on ANY whitespace to support tabs OR spaces
+    header = re.split(r"\s+", lines[0].strip())
+
+    musthave = {"Name", "Number", "E", "N", "U"}
+    if not musthave.issubset(set(header)):
+        raise ValueError(f"{src_layout} missing required columns {musthave}. Got: {header}")
+
+    has_beamid = "BeamID" in header
+    if has_beamid:
+        beamid_idx = header.index("BeamID")
+        new_header = header[:]  # overwrite in place later
+    else:
+        # insert BeamID right after Number
+        num_idx = header.index("Number")
+        beamid_idx = num_idx + 1
+        new_header = header[:beamid_idx] + ["BeamID"] + header[beamid_idx:]
+
+    # map header name -> index in the *original* file
+    idx = {name: i for i, name in enumerate(header)}
+
+    out_lines = []
+    out_lines.append("\t".join(new_header))  # write as TSV
+
+    for line in lines[1:]:
+        if not line.strip():
+            continue
+        parts = re.split(r"\s+", line.strip())
+
+        # robustly get antenna Number (int), even if stored like "0.0"
+        ant_num = int(float(parts[idx["Number"]]))
+        if ant_num not in beamid_by_ant:
+            raise ValueError(f"No BeamID mapping provided for antenna Number={ant_num}")
+
+        beamid = str(beamid_by_ant[ant_num])
+
+        if has_beamid:
+            # overwrite existing BeamID column
+            parts[beamid_idx] = beamid
+            # ensure parts length matches header length; pad if needed
+            if len(parts) < len(new_header):
+                parts += [""] * (len(new_header) - len(parts))
+            row = parts
+        else:
+            # insert BeamID right after Number
+            row = parts[:beamid_idx] + [beamid] + parts[beamid_idx:]
+
+        out_lines.append("\t".join(row))
+
+    dst = src_layout.with_suffix(src_layout.suffix + ".with_beamids")
+    # print("printing layout file name" + dst)
+    Path(dst).write_text("\n".join(out_lines) + "\n")
+    return dst
 
 @cache
 def make_tele_config(
-    freq_interp_kind: str = "cubic", spline_interp_order: int = 3, beam_interpolator: str = "az_za_map_coordinates"
+    freq_interp_kind: str = "cubic",
+    spline_interp_order: int = 3,
+    beam_interpolator: str = "az_za_map_coordinates",
+    *,
+    beam_map_csv: Path | None = None,
+    default_beam_file: Path | None = None,
+    beamvar_type: str = 'beamdflt',
+    ideal_layout: bool = True,
 ) -> Path:
-    """Make a telescope config file."""
-    config = f"""
-beam_paths:
-  0: !UVBeam
-    filename: '{utils.BEAMDIR}/NF_HERA_Vivaldi_efield_beam_extrap.fits'
-telescope_location: {str(utils.HERA_LOC)}
-telescope_name: HERA
-freq_interp_kind: '{freq_interp_kind}'
-"""
+    """
+    Make a telescope config file.
 
-    if beam_interpolator=="az_za_simple":
-        config += f"""
-spline_interp_opts:
-  kx: {spline_interp_order}
-  ky: {spline_interp_order}
-"""
-    elif beam_interpolator=="az_za_map_coordinates":
-        config += f"""
-spline_interp_opts:
-  order: {spline_interp_order}
-"""
+    If beam_map_csv is None : single-beam config default
+    else : build mapping : BeamID : !UVBeam filename
+    """
+    # default beam 
+    if default_beam_file is None:
+        default_beam_file = Path(utils.BEAMDIR) / "NF_HERA_Vivaldi_efield_beam_extrap.fits"
 
+    config = []
 
-    _fname = f"hera_{freq_interp_kind}_{spline_interp_order}.yaml"
+    # Per-antenna: build beam_paths from mapping
+    if beam_map_csv is not None:
+        mapping = read_beam_map_csv(beam_map_csv)
+        unique_files = {}
+        for ant in sorted(mapping):
+            fpath = mapping[ant]
+            if fpath not in unique_files:
+                unique_files[fpath] = len(unique_files)
+
+        config.append("beam_paths:")
+        # Write in BeamID order
+        for f, bid in sorted(unique_files.items(), key=lambda kv: kv[1]):
+            print(f"Writing beam : {bid}, '{str(f)}' ")
+            config.append(f"  {bid}: !UVBeam")
+            config.append(f"    filename: '{str(f)}'")
+
+    else:
+        # default beam
+        config.append("beam_paths:")
+        config.append("  0: !UVBeam")
+        config.append(f"    filename: '{str(default_beam_file)}'")
+
+    # telescope, interp meta
+    config.append(f"telescope_location: {str(utils.HERA_LOC)}")
+    config.append("telescope_name: HERA")
+    config.append(f"freq_interp_kind: '{freq_interp_kind}'")
+
+    # beam_interpolator type
+    if beam_interpolator == "az_za_simple":
+        config.append("spline_interp_opts:")
+        config.append(f"  kx: {int(spline_interp_order)}")
+        config.append(f"  ky: {int(spline_interp_order)}")
+    elif beam_interpolator == "az_za_map_coordinates":
+        config.append("spline_interp_opts:")
+        config.append(f"  order: {int(spline_interp_order)}")
+
+    # filename with beam_map tags
+    tag = f"{freq_interp_kind}_{spline_interp_order}"
+    if beam_map_csv is not None:
+        bm_blob = Path(beam_map_csv).read_bytes()
+        ideal_tag = "idealT" if ideal_layout else "idealF"
+        tag = f"{tag}_beammapperant_{ideal_tag}_{beamvar_type}"
+
+    _fname = f"hera_{tag}.yaml"
     fname = CFGDIR / "teleconfigs" / "tmp" / _fname
-
     fname.parent.mkdir(exist_ok=True, parents=True)
-    with open(fname, "w") as fl:
-        fl.write(config)
-
+    Path(fname).write_text("\n".join(config) + "\n")
     return fname
 
 
@@ -77,44 +238,119 @@ def make_hera_obsparam(
     season: str = "H4C",
     force: bool = False,
     redundant: bool = False,
-    prefix: str = "default"
+    prefix: str = "default",
+    *,
+    beam_map_csv = None,		#per antenna beamfile (explicit path pass)
+    default_beam_file = None,		#default antenna beamfile (usually None since harcoded option in make_tele_config() to avoid breaking legacy code
+    beamvar_type: str = 'beamdflt',
 ):
-    """Create an obsparam file."""
+    """Create obsparam files (one per channel × chunk)"""
     freq_vals = utils.FREQS_DICT[season][channels]
 
     if NTIMES % chunks != 0:
         raise ValueError(f"Please choose chunks to divide NTIMES {NTIMES} cleanly")
 
-    print('chunks: ', chunks)
+    print("chunks: ", chunks)
     if do_chunks is None:
-        do_chunks = list(range(chunks+1))
+        do_chunks = list(range(chunks + 1))
     else:
         assert all(x < chunks for x in do_chunks)
     print(do_chunks)
     Ntimes_per_chunk = NTIMES // chunks
 
+#    if isinstance(layout, str):
+#    	# it's a name
+#        layout_file = utils.make_hera_layout(name=layout, ideal=ideal_layout)
+#    elif isinstance(layout, Path):
+#        layout_file = layout
+#    else:
+#    	# it's a list of integers specifying antennas
+#        layout_file = utils.make_hera_layout(
+#            name=f"HERA_custom_subset_{md5(str(layout).encode()).hexdigest()}",
+#            ants=layout,
+#            ideal=ideal_layout,
+#        )
+
+    # print("Input layout is ", layout)
+    # layout=[0,1,2,3,4,5,6,7,8,9]
+    # print("Input layout is ", layout)
     if isinstance(layout, str):
-        # it's a name
+        # It's a known layout name (must exist in ANTS_DICT)
         layout_file = utils.make_hera_layout(name=layout, ideal=ideal_layout)
+        layout_key = layout  # for directory naming
     elif isinstance(layout, Path):
         layout_file = layout
-    else:
-        # it's a list of integers specifying antennas
+        layout_key = layout.stem
+    elif isinstance(layout, (list, tuple)):
+        # Layout is explicitly a list of antenna numbers
+        subset = list(map(int, layout))
+        print("subset is ", subset)
+        # This adds a tag to folder names to encode if ideal antpos used or non-red
+        ideal_tag = "idealT" if ideal_layout else "idealF"
+        subset_name = f"HERA_custom_subset_{ideal_tag}_{md5(str(subset).encode()).hexdigest()}"
         layout_file = utils.make_hera_layout(
-            name=f"HERA_custom_subset_{md5(str(layout).encode()).hexdigest()}",
-            ants=layout,
+            name=subset_name,
+            ants=np.array(subset),
             ideal=ideal_layout,
         )
+        layout_key = subset_name
+    else:
+        raise ValueError(
+            f"Invalid layout argument: {layout!r}. "
+            "Expected a layout name (str), a file (Path), or a list of antenna integers."
+        )
+        
 
-    tele_config_file = make_tele_config(
-        freq_interp_kind=freq_interp_kind, spline_interp_order=spline_interp_order, beam_interpolator=beam_interpolator,
-    )
+    ###############################New Part############################################
+    # If per-antenna beams provided, produce a copy of the layout with BeamID column
+    # and remember the new path; otherwise keep legacy layout.
+    if beam_map_csv is not None:
+        # Build mapping ant to BeamID
+        mapping = read_beam_map_csv(beam_map_csv)
+        # Assign IDs by first-appearance of unique files
+        unique_files: dict[Path, int] = {}
+        beamid_by_ant: dict[int, int] = {}
+        for ant in sorted(mapping):
+            f = mapping[ant]
+            if f not in unique_files:
+                unique_files[f] = len(unique_files)
+            beamid_by_ant[ant] = unique_files[f]
+        # Write layout copy with BeamID column
+        layout_file = write_array_with_beamids(layout_file, beamid_by_ant)
+        # Write a telescope config with beam_paths for all IDs
+        tele_config_file = make_tele_config(
+            freq_interp_kind=freq_interp_kind,
+            spline_interp_order=spline_interp_order,
+            beam_interpolator=beam_interpolator,
+            beam_map_csv=beam_map_csv,
+            default_beam_file=default_beam_file,
+            beamvar_type=beamvar_type,
+            ideal_layout=ideal_layout,
+        )
+    else:
+        tele_config_file = make_tele_config(
+            freq_interp_kind=freq_interp_kind,
+            spline_interp_order=spline_interp_order,
+            beam_interpolator=beam_interpolator,
+            beam_map_csv=None,
+            default_beam_file=default_beam_file,
+            beamvar_type=beamvar_type,
+            ideal_layout=ideal_layout,
+        )
+    ####################################################################################
 
     modeldir = utils.get_direc(
-        sky_model=sky_model, chunks=chunks, layout=layout_file.stem,
-        redundant=redundant, prefix=prefix,
+        sky_model=sky_model,
+        chunks=chunks,
+        layout=layout_file.stem,
+        redundant=redundant,
+        prefix=prefix,
+        beamvar_type=beamvar_type,
     )
     
+    print("out_file.stem is ", layout_file.stem)
+    print("out_file is ", layout_file)
+
     obsparams_dir = utils.OBSPDIR / modeldir
     obsparams_dir.mkdir(parents=True, exist_ok=True)
     outdir = utils.OUTDIR / modeldir
@@ -129,23 +365,25 @@ def make_hera_obsparam(
             from pyuvdata.utils.redundancy import get_antenna_redundancies
             from pyuvdata.utils import baseline_to_antnums
 
-            ants = np.genfromtxt(layout_file, skip_header=1, usecols=(1, 3,4,5), delimiter='\t')
+            ants = np.genfromtxt(layout_file, skip_header=1, usecols=(1, 3, 4, 5), delimiter="\t")
             antnums = ants[:, 0]
-            redbls = get_antenna_redundancies(antnums, ants[:, 1:], tol=4.0, use_grid_alg=True, include_autos=True)[0]  # hera thresh 
+            redbls = get_antenna_redundancies(antnums, ants[:, 1:], tol=4.0, use_grid_alg=True, include_autos=True)[0]  # hera thresh
             redbls = np.array([baseline_to_antnums(r[0], Nants_telescope=350) for r in redbls])
             np.savetxt(redfile, redbls)
         reds = [(int(a), int(b)) for a, b in redbls]
 
     print(channels, freq_vals, do_chunks)
     for fch, fv in zip(channels, freq_vals):
+        print("test 2")
         for ch in do_chunks:
+            print("test 3")
             jobname = modeldir / utils.get_file(chunk=ch, channel=fch, with_dir=False)
             obsparams_file = utils.OBSPDIR / jobname
             print(f"Going to make {obsparams_file}")
             if obsparams_file.exists() and not force:
                 continue
 
-            # Note that global paths from utils are Path objects. f-string formatting
+	    # Note that global paths from utils are Path objects. f-string formatting
             # automatically converts them to string for yaml to write out.
             obsparams = {
                 "filing": {
@@ -156,9 +394,7 @@ def make_hera_obsparam(
                 },
                 "freq": {
                     "Nfreqs": 1,
-                    "channel_width": float(
-                        utils.FREQS_DICT[season][1] - utils.FREQS_DICT[season][0]
-                    ),
+                    "channel_width": float(utils.FREQS_DICT[season][1] - utils.FREQS_DICT[season][0]),
                     "start_freq": float(fv),
                 },
                 "sources": {"catalog": f"{SKYDIR}/{sky_model}/fch{fch:04d}.skyh5"},
@@ -170,20 +406,21 @@ def make_hera_obsparam(
                 "time": {
                     "Ntimes": Ntimes_per_chunk,
                     "integration_time": INTEGRATION,
-                    "start_time": START_TIME
-                    + INTEGRATION * ch * Ntimes_per_chunk / 86400,
+                    "start_time": START_TIME + INTEGRATION * ch * Ntimes_per_chunk / 86400,
                 },
-                # This order makes it fastest to put the vis-cpu data back in.
                 "polarization_array": [-5, -7, -8, -6],
-                'cat_name': sky_model,
+                "cat_name": sky_model,
             }
-            
+
             if redundant:
-                obsparams['select'] = {'bls': str(reds)}
+                # top-level selection of redundant baselines
+                obsparams["select"] = {"bls": str(reds)}
 
             with open(obsparams_file, "w") as stream:
                 yaml.dump(obsparams, stream, default_flow_style=False, sort_keys=False)
 
             print(f"Wrote obsparams at {obsparams_file}")
+
+    print("test 1")
 
     return layout_file

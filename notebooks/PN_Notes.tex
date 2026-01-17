@@ -1,0 +1,876 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{bm}
+\usepackage{hyperref}
+\usepackage{enumitem}
+
+\begin{document}
+
+I’ll go model by model and translate the code into math, plus what it means physically for your signal-loss analysis. I’ll use consistent notation so it’s easier to see how the pieces fit together.
+
+\section*{0. Data and notation (what the arrays actually are)}
+
+From the code:
+
+\begin{itemize}[leftmargin=*]
+  \item \texttt{uvp\_power\_list} $\Rightarrow$ list over redundant groups of
+  \[
+    P_{\mathrm{coh}}(t): \text{ coherent PSPEC at delay } \approx 0, \text{ as a function of LST.}
+  \]
+
+  \item \texttt{uvpspec\_avg\_power\_list} $\Rightarrow$ list of
+  \[
+    P_{\mathrm{inc}}(t): \text{\emph{incoherently} averaged PSPEC at delay } \approx 0, \text{ same LSTs.}
+  \]
+
+  \item \texttt{uvpspec\_noise\_list} $\Rightarrow$ list of
+  \[
+    P_N(t): \text{ noise power estimate from \texttt{uvpspec\_averaged.get\_stats('autos\_diag', key)} at delay } \approx 0.
+  \]
+
+  \item \texttt{uvpspec\_signalnoise\_list} $\Rightarrow$ list of
+  \[
+    P_{SN}(t): \text{ some signal+noise RMS combination you construct from } P_S \text{ and } P_N.
+  \]
+
+  \item \texttt{uvpspec\_SNR\_list} $\Rightarrow$ list of
+  \[
+    \mathrm{SNR}(t) = \frac{\bigl|P_{\mathrm{coh}}(t)\bigr|}{P_N(t)} \quad \text{at delay } \approx 0.
+  \]
+
+  \item Each \texttt{list} entry corresponds to one redundant group $g$. Inside each group you have samples indexed by LST $t$.
+\end{itemize}
+
+I’ll denote:
+
+\begin{itemize}[leftmargin=*]
+  \item Group index: $g = 1, \dots, G$,
+  \item Time/LST index within group: $i = 1, \dots, N_g$.
+\end{itemize}
+
+So for each group and time you have:
+
+\begin{itemize}[leftmargin=*]
+  \item $P_{\mathrm{coh}}^{(g)}(t_i)$,
+  \item $P_{\mathrm{inc}}^{(g)}(t_i)$,
+  \item $P_N^{(g)}(t_i)$,
+  \item $P_{SN}^{(g)}(t_i)$,
+  \item $\mathrm{SNR}^{(g)}(t_i)$.
+\end{itemize}
+
+The global concatenation across all groups has total length
+\[
+  N = \sum_g N_g.
+\]
+
+\section*{1. ``Bump and valley'' segmentation in LST}
+
+\subsection*{Function: \texttt{bump\_n\_val\_segments\_by\_dips}}
+
+\textbf{Goal:} segment the LST axis into ``bumps'' separated by ``dips'' in the coherent PSPEC, and identify valley regions around each dip.
+
+\textbf{Inputs:}
+
+\begin{itemize}[leftmargin=*]
+  \item \texttt{lst}: $t_i$, monotonically increasing LST (in hours, ``rolled'').
+  \item \texttt{pspec}: main 1D power spectrum vs.\ LST (e.g.\ coherent power).
+  \item \texttt{pspec2}: a second spectrum sampled at the same LST points (e.g.\ incoherent power).
+\end{itemize}
+
+\subsubsection*{Step 1 -- smoothing}
+
+\begin{verbatim}
+psmooth = savgol_filter(pspec, smooth_window, polyorder)
+\end{verbatim}
+
+Mathematically: $psmooth(t)$ is a Savitzky--Golay smoothed version of $pspec(t)$, i.e.\ a local polynomial fit of degree \texttt{polyorder} over a window of length \texttt{smooth\_window}. This reduces small-scale noise so that dips/peaks are better defined.
+
+\subsubsection*{Step 2 -- find dips}
+
+\begin{verbatim}
+dip_indices, _ = find_peaks(-psmooth,
+                            prominence=dip_prominence,
+                            width=dip_width)
+\end{verbatim}
+
+\texttt{find\_peaks(-psmooth)} looks for \emph{peaks} in $-psmooth$, i.e.\ \emph{local minima in \texttt{psmooth}}.
+
+Each detected dip index $d_k$ satisfies:
+
+\begin{itemize}[leftmargin=*]
+  \item $psmooth$ is locally low compared to its neighbours.
+  \item ``Prominence'' and ``width'' ensure the dip is not just noise.
+\end{itemize}
+
+\subsubsection*{Step 3 -- segment into ``bumps''}
+
+\begin{verbatim}
+bounds = np.concatenate(([0], dip_indices, [len(pspec)-1]))
+segments = []
+for i in range(len(bounds)-1):
+    i0, i1 = bounds[i], bounds[i+1]
+    segments.append((lst[i0:i1+1], pspec[i0:i1+1]))
+\end{verbatim}
+
+You form boundaries
+\[
+  0 = b_0 < b_1 = d_1 < b_2 = d_2 < \dots < b_K = d_K < b_{K+1} = N-1.
+\]
+
+Each consecutive interval $[b_i, b_{i+1}]$ is a ``bump'' segment:
+
+\[
+  \mathcal{S}_i = \{(t_j, pspec_j): j \in [b_i, b_{i+1}]\}.
+\]
+
+Physically: each bump is a contiguous LST region between dips -- likely corresponding to a strong sky feature or a beam/sidelobe region.
+
+\subsubsection*{Step 4 -- find peaks and valley ranges around each dip}
+
+\begin{verbatim}
+peak_indices, _ = find_peaks(psmooth)
+\end{verbatim}
+
+Now you search for \emph{peaks} (local maxima) in $psmooth$. So each \texttt{dip} is flanked by a left peak \texttt{pl} and right peak \texttt{pr}.
+
+For each dip index \texttt{pd}:
+
+\begin{enumerate}[leftmargin=*]
+  \item Identify nearest left and right peaks:
+\begin{verbatim}
+lefts  = peak_indices[peak_indices < pd]
+rights = peak_indices[peak_indices > pd]
+pl, pr = lefts.max(), rights.min()
+\end{verbatim}
+
+So $pl < pd < pr$ with $pl$ and $pr$ the closest peaks.
+
+  \item Define threshold levels as fractions of the peak heights:
+\begin{verbatim}
+thr_l = frac * pspec[pl]
+thr_r = frac * pspec[pr]
+\end{verbatim}
+So
+\[
+  T_L = f \cdot pspec(pl), \quad T_R = f \cdot pspec(pr),
+\]
+with \texttt{frac = f} (e.g.\ 0.05 or 0.25).
+
+  \item Find the valley ``extent'' where the spectrum falls below these thresholds.
+  
+  On the left side:
+\begin{verbatim}
+left_ok = np.nonzero(pspec[:pd] > thr_l)[0]
+start = (left_ok.max()+1) if left_ok.size else 0
+\end{verbatim}
+This finds the last index before the dip where $pspec > T_L$. The valley begins at the next index \texttt{start}.
+
+  On the right side:
+\begin{verbatim}
+right_ok = np.nonzero(pspec[pd+1:] > thr_r)[0]
+end = (pd + right_ok.min()) if right_ok.size else len(pspec)-1
+\end{verbatim}
+This finds the first index after the dip where $pspec > T_R$. The valley ends at this \texttt{end}.
+
+The valley range is
+\[
+  i \in [\mathrm{start}, \mathrm{end}].
+\]
+
+  \item Store the valley in both \texttt{pspec} and \texttt{pspec2}:
+\begin{verbatim}
+valley_ranges.append((lst[start:end+1], pspec[start:end+1]))
+valley_ranges2.append((lst[start:end+1], pspec2[start:end+1]))
+\end{verbatim}
+\end{enumerate}
+
+\textbf{Physical use:} in your plotting code you \emph{could} use these valley slices to focus on low-power regions between bright ``bumps'' when studying loss vs.\ LST or forming ratios $P_{\mathrm{coh}} / P_{\mathrm{inc}}$.
+
+\section*{2. Two-segment piecewise linear ``slope'' model (signal-loss as a break in log--log space)}
+
+\subsection*{Functions: \texttt{piecewise\_linear}, \texttt{manual\_piecewise\_linear\_fit}, \texttt{joint\_piecewise\_linear\_fit}}
+
+\subsubsection*{Model definition}
+
+\begin{verbatim}
+def piecewise_linear(params, x):
+    m1, b1, m2, b2, x0 = params
+    return np.where(x <= x0,
+                    m1 * x + b1,
+                    m2 * x + b2)
+\end{verbatim}
+
+Given parameters $(m_1, b_1, m_2, b_2, x_0)$, the model is
+\[
+  f(x) =
+  \begin{cases}
+    m_1 x + b_1, & x \le x_0, \\
+    m_2 x + b_2, & x > x_0.
+  \end{cases}
+\]
+
+\subsubsection*{Residuals and cost}
+
+For data points $(x_i, y_i)$:
+
+\begin{verbatim}
+def residuals(params, x, y):
+    return piecewise_linear(params, x) - y
+\end{verbatim}
+
+Residual for point $i$ is
+\[
+  r_i = f(x_i) - y_i.
+\]
+
+Sum of squared errors (SSE):
+\[
+  \mathrm{SSE}(\text{params}) = \sum_i r_i^2.
+\]
+
+\subsubsection*{Manual grid search fit}
+
+\texttt{fit\_piecewise\_linear} always forces \texttt{success=False}, so you always use:
+
+\begin{verbatim}
+def manual_piecewise_linear_fit(x, y, num_breaks=200):
+    candidates = np.linspace(np.min(x), np.max(x), num_breaks)
+    best = {'cost': np.inf}
+    for x0 in candidates:
+        left  = x <= x0
+        right = x > x0
+        if np.sum(left) < 2 or np.sum(right) < 2:
+            continue
+        m1, b1 = np.polyfit(x[left], y[left], 1)
+        m2, b2 = np.polyfit(x[right], y[right], 1)
+        ...
+        cost = np.sum((y_pred - y)**2)
+        if cost < best['cost']:
+            best.update(...)
+\end{verbatim}
+
+For each candidate breakpoint $x_0$:
+
+\begin{enumerate}[leftmargin=*]
+  \item Split data into left and right sets:
+  \[
+    \mathcal{L} = \{i : x_i \le x_0\}, \quad
+    \mathcal{R} = \{i : x_i > x_0\}.
+  \]
+
+  \item Fit linear models separately:
+  \begin{itemize}[leftmargin=*]
+    \item Left:
+    \[
+      y_i \approx m_1 x_i + b_1, \quad i \in \mathcal{L}
+    \]
+    using ordinary least squares (\texttt{np.polyfit}).
+
+    \item Right:
+    \[
+      y_i \approx m_2 x_i + b_2, \quad i \in \mathcal{R}.
+    \]
+  \end{itemize}
+
+  \item Construct predictions $y_i^{\mathrm{pred}}$ piecewise; compute
+  \[
+    \mathrm{SSE}(x_0) = \sum_i \left(y_i^{\mathrm{pred}} - y_i\right)^2.
+  \]
+
+  \item Choose $x_0$ that minimises SSE; record best $m_1, b_1, m_2, b_2$.
+\end{enumerate}
+
+So the final best parameters are
+\[
+  (m_1^\ast, b_1^\ast, m_2^\ast, b_2^\ast, x_0^\ast).
+\]
+
+\subsubsection*{Application to PSPEC: \texttt{joint\_piecewise\_linear\_fit}}
+
+\begin{verbatim}
+def joint_piecewise_linear_fit(uvp_power_list, uvpspec_avg_power_list,
+                               method='trf', manual_fallback=True):
+    xs, ys = [], []
+    for pcoh, pinc in zip(uvp_power_list, uvpspec_avg_power_list):
+        mask = np.isfinite(pcoh) & np.isfinite(pinc) & (pcoh>0) & (pinc>0)
+        xs.append(np.log10(pcoh[mask]))
+        ys.append(np.log10(pinc[mask]))
+    x_all = np.concatenate(xs)
+    y_all = np.concatenate(ys)
+
+    return fit_piecewise_linear(x_all, y_all,
+                                method=method,
+                                manual_fallback=manual_fallback), x_all
+\end{verbatim}
+
+Here we set
+\[
+  x = \log_{10} P_{\mathrm{coh}}, \quad
+  y = \log_{10} P_{\mathrm{inc}}.
+\]
+
+Model:
+\[
+  \log_{10} P_{\mathrm{inc}} \approx
+  \begin{cases}
+    m_1 \log_{10} P_{\mathrm{coh}} + b_1,
+    & \log_{10} P_{\mathrm{coh}} \le x_0, \\[3pt]
+    m_2 \log_{10} P_{\mathrm{coh}} + b_2,
+    & \log_{10} P_{\mathrm{coh}} > x_0.
+  \end{cases}
+\]
+
+\textbf{Interpretation:}
+
+\begin{itemize}[leftmargin=*]
+  \item At low coherent power (low SNR), the relationship is described by slope $m_1$.
+  \item At high coherent power, slope $m_2$ tells how quickly $P_{\mathrm{inc}}$ grows with $P_{\mathrm{coh}}$.
+\end{itemize}
+
+If there were \emph{no} signal loss and no weird behaviour, you’d expect:
+\[
+  m_1 \approx 1, \quad m_2 \approx 1.
+\]
+
+A slope $m_2 < 1$ in the high-power regime means:
+\[
+  \log P_{\mathrm{inc}} \approx m_2 \log P_{\mathrm{coh}} + b_2
+  \quad\Rightarrow\quad
+  P_{\mathrm{inc}} \propto P_{\mathrm{coh}}^{\,m_2},
+\]
+which is ``sub-linear'' growth: large coherent power is \emph{compressed} when seen in the incoherent estimator -- i.e.\ a sign of multiplicative signal loss. The code turns this into a ``loss percent'' like $(1-m_2)\times 100\%$.
+
+\section*{3. Generic linear combo model}
+
+\subsection*{Function: \texttt{fit\_linear\_combo}}
+
+This is a simple linear regression
+\[
+  y \approx a \cdot f(x) + b \cdot g(x) + c
+\]
+implemented as:
+
+\begin{verbatim}
+X = np.column_stack([fx, gx])  # (or [fx,gx,snx])
+coefs = np.dot(np.linalg.pinv(X), y)
+\end{verbatim}
+
+In full form (when you include an intercept, or in your commented version):
+
+\begin{itemize}[leftmargin=*]
+  \item Data:
+  \[
+    y_i, f_i, g_i.
+  \]
+
+  \item Design matrix:
+  \[
+    X =
+    \begin{bmatrix}
+      f_1 & g_1 & 1 \\
+      f_2 & g_2 & 1 \\
+      \vdots & \vdots & \vdots \\
+      f_N & g_N & 1 \\
+    \end{bmatrix}.
+  \]
+
+  \item Coefficient vector:
+  \[
+    \boldsymbol{\beta} =
+    \begin{bmatrix}
+      a \\ b \\ c
+    \end{bmatrix}.
+  \]
+
+  \item Model:
+  \[
+    \mathbf{y} \approx X \boldsymbol{\beta}.
+  \]
+
+  \item Least-squares solution (using pseudoinverse):
+  \[
+    \hat{\boldsymbol{\beta}} = X^+ \mathbf{y}
+    \approx (X^\top X)^{-1} X^\top \mathbf{y}.
+  \]
+\end{itemize}
+
+You use this style in the ``single fit'' toy block (currently disabled) to model
+\[
+  P_{\mathrm{inc}} \approx N_a\, P_N + m\, P_{\mathrm{coh}}.
+\]
+
+\section*{4. Joint PN model: globally fitting \texorpdfstring{$P_{\mathrm{inc}}$}{P\_inc} vs \texorpdfstring{$P_{\mathrm{coh}}$}{P\_coh} and \texorpdfstring{$P_N$}{P\_N} across all groups}
+
+\subsection*{Function: \texttt{fit\_joint\_PN\_linear\_combo}}
+
+This is your main ``PN model'' for signal loss.
+
+\subsubsection*{Step 1 -- build arrays per group}
+
+\begin{verbatim}
+Ys, PN_cols, coh_cols, mask = [], [], [], []
+for up, ua, un in zip(uvp_power_list,
+                      uvpspec_avg_power_list,
+                      uvpspec_noise_list):
+    m = np.isfinite(ua)&np.isfinite(un)&np.isfinite(up)
+    Ys.append(ua[m])   # P_inc
+    PN_cols.append(un[m])   # P_N
+    coh_cols.append(up[m])  # P_coh
+    mask.append(m)
+\end{verbatim}
+
+For each group $g$:
+
+\[
+  Y^{(g)}_i = P_{\mathrm{inc}}^{(g)}(t_i), \quad
+  PN^{(g)}_i = P_{N}^{(g)}(t_i), \quad
+  C^{(g)}_i = P_{\mathrm{coh}}^{(g)}(t_i)
+\]
+
+with only finite points kept.
+
+Then concatenate over groups:
+
+\begin{verbatim}
+Y = np.concatenate(Ys)           # shape (N,)
+C = np.concatenate(coh_cols)     # shape (N,)
+Ntot = Y.size                    # total number of data points
+\end{verbatim}
+
+So $Y$ is the stacked $P_{\mathrm{inc}}$ for all groups.
+
+\subsubsection*{Step 2 -- ``block-diagonal'' PN columns}
+
+\begin{verbatim}
+X_cols = []
+start = 0
+for PN in PN_cols:
+    Ni = PN.size
+    col_full = np.zeros(Ntot, dtype=float)
+    col_full[start:start+Ni] = PN
+    X_cols.append(col_full)
+    start += Ni
+\end{verbatim}
+
+This is key. For each group $g$:
+
+\begin{itemize}[leftmargin=*]
+  \item Let its length be $N_g$.
+  \item You create a column vector of length $N$ filled with zeros except over the rows corresponding to that group, where you insert that group’s noise vector $PN^{(g)}$.
+\end{itemize}
+
+Schematically for two groups:
+\[
+  X_{\mathrm{PN}} =
+  \begin{bmatrix}
+    PN^{(1)}_1 & 0 \\
+    PN^{(1)}_2 & 0 \\
+    \vdots      & \vdots \\
+    PN^{(1)}_{N_1} & 0 \\
+    0 & PN^{(2)}_1 \\
+    0 & PN^{(2)}_2 \\
+    \vdots & \vdots \\
+    0 & PN^{(2)}_{N_2}
+  \end{bmatrix}.
+\]
+
+So group 1’s noise lives in column 1, group 2’s noise in column 2, etc. That’s why it behaves like a block-diagonal structure.
+
+\subsubsection*{Step 3 -- build full design matrix}
+
+\begin{verbatim}
+X = np.column_stack(X_cols + [C])
+\end{verbatim}
+
+So the design matrix $X$ has:
+
+\begin{itemize}[leftmargin=*]
+  \item First $G$ columns = block PN columns,
+  \item Last column = concatenated coherent power $C$.
+\end{itemize}
+
+Dimension:
+
+\[
+  X \in \mathbb{R}^{N \times (G+1)}.
+\]
+
+\subsubsection*{Step 4 -- fit coefficients}
+
+\begin{verbatim}
+coefs    = np.linalg.pinv(X) @ Y
+Na_list  = coefs[:-1]
+slopeloss = coefs[-1]
+Y_pred = X @ coefs
+\end{verbatim}
+
+Let
+\[
+  \boldsymbol{\beta} =
+  \begin{bmatrix}
+    N_a^{(1)} \\ N_a^{(2)} \\ \vdots \\ N_a^{(G)} \\ m
+  \end{bmatrix}.
+\]
+
+Then the model is:
+\[
+  Y \approx X \boldsymbol{\beta}.
+\]
+
+Unstacking by group, for each group $g$ and time $t_i$:
+\[
+  P_{\mathrm{inc}}^{(g)}(t_i) \approx
+  N_a^{(g)}\, P_{N}^{(g)}(t_i) \;+\; m\, P_{\mathrm{coh}}^{(g)}(t_i).
+\]
+
+So mathematically:
+
+\begin{itemize}[leftmargin=*]
+  \item $N_a^{(g)}$ is a \emph{per-group scalar amplitude} for the noise power.
+  \item $m = \text{slopeloss}$ is a \emph{global scalar} relating coherent and incoherent power after subtracting the noise contribution.
+\end{itemize}
+
+You solve this via least squares:
+\[
+  \hat{\boldsymbol{\beta}} = X^+ Y.
+\]
+
+\textbf{Physical interpretation:}
+
+\begin{itemize}[leftmargin=*]
+  \item If the pipeline were perfect and we had properly subtracted noise, you’d expect something like
+  \[
+    P_{\mathrm{inc}} \approx P_{\mathrm{coh}}
+    \quad \Rightarrow \quad m \approx 1
+  \]
+  (and $N_a^{(g)}$ capturing the actual noise normalisation for each group).
+
+  \item If the pipeline introduces multiplicative signal loss, the \emph{coherent} power transferred into the incoherent estimate is suppressed. The coefficient $m$ encodes that:
+  \begin{itemize}[leftmargin=*]
+    \item If $m > 1$, then
+      \[
+        P_{\mathrm{inc}} \approx N_a P_N + m P_{\mathrm{coh}},
+      \]
+      and you interpret $1/m$ as a ``loss ratio'' $P_{\text{true}} / P_{\text{measured}}$.
+    \item In your code, the ``loss percentage'' is computed as:
+      \[
+        \text{loss} \approx (1 - 1/m)\times 100\%.
+      \]
+  \end{itemize}
+\end{itemize}
+
+\textbf{Use in plotting:}
+
+\begin{verbatim}
+median_vals.append((1-1/slopeloss_joint)*100)
+...
+ax_group[0].axhline(1/slopeloss_joint, label="All Group PN Fit Loss Ratio = 1/slopeloss")
+\end{verbatim}
+
+You then plot e.g.\ $P_{\mathrm{coh}} / P_{\mathrm{inc,fit}}$ vs.\ SNR, and compare that to the global constant $1/m$. If the ratio clusters around $1/m$, that’s your effective signal-loss factor.
+
+\section*{5. PN + PSN model: adding a ``signal$\times$noise'' term per group}
+
+\subsection*{Function: \texttt{fit\_joint\_PSN\_linear\_combo}}
+
+Same structure but with extra columns for $P_{SN}^{(g)}$.
+
+\subsubsection*{Step 1 -- build lists}
+
+\begin{verbatim}
+Ys, PN_cols, PSN_cols, coh_cols = [], [], [], []
+for up, ua, un, usn in zip(uvp_power_list,
+                           uvpspec_avg_power_list,
+                           uvpspec_noise_list,
+                           uvpspec_signalnoise_list):
+    m = np.isfinite(ua)&np.isfinite(un)&np.isfinite(up)
+    Ys.append(ua[m])       # P_inc
+    PN_cols.append(un[m])  # P_N
+    PSN_cols.append(usn[m])# P_SN (signal-noise combo)
+    coh_cols.append(up[m]) # P_coh
+\end{verbatim}
+
+\subsubsection*{Step 2 -- concatenate and build block-diagonal columns}
+
+You do the same block-diagonal trick for both \texttt{PN\_cols} and \texttt{PSN\_cols}:
+
+\begin{verbatim}
+X_cols  = block_diag_for(PN_cols)
+XS_cols = block_diag_for(PSN_cols)
+X = np.column_stack(X_cols + XS_cols + [C])
+\end{verbatim}
+
+So now:
+
+\begin{itemize}[leftmargin=*]
+  \item For each group you have two per-group scalars: one multiplying $P_N$, one multiplying $P_{SN}$.
+  \item And one global slope $m$ multiplying $P_{\mathrm{coh}}$.
+\end{itemize}
+
+Let the parameter vector be:
+\[
+  \boldsymbol{\beta} =
+  \begin{bmatrix}
+    N_a^{(1)} \\ \dots \\ N_a^{(G)} \\
+    N_b^{(1)} \\ \dots \\ N_b^{(G)} \\
+    m
+  \end{bmatrix}.
+\]
+
+For each group $g$ and time $t_i$:
+\[
+  P_{\mathrm{inc}}^{(g)}(t_i) \approx
+  N_a^{(g)} P_N^{(g)}(t_i)
+  + N_b^{(g)} P_{SN}^{(g)}(t_i)
+  + m P_{\mathrm{coh}}^{(g)}(t_i).
+\]
+
+\textbf{Physical meaning of $P_{SN}$:}
+
+You define:
+\begin{verbatim}
+uvpspec_signalnoise_list.append(
+    np.sqrt( np.sqrt(2)*ups*un + (un)**2 )
+)
+\end{verbatim}
+with $ups = P_S$, $un = P_N$. Inside the sqrt:
+\[
+  \sqrt{2}\, P_S P_N + P_N^2
+\]
+This looks like a term from the variance of a cross-power estimator where noise mixes with signal (signal $\times$ noise terms) plus pure noise variance. So $P_{SN}$ is effectively a \emph{signal-noise coupling scale}.
+
+So the PSN model allows each group its own weighting for ``pure noise'' and ``signal$\times$noise'' contributions, and still solves for a single global signal-loss slope $m$.
+
+\section*{6. SNR model: \texorpdfstring{$P_{\mathrm{inc}}$}{P\_inc} as function of SNR and \texorpdfstring{$P_{\mathrm{coh}}$}{P\_coh}}
+
+\subsection*{Function: \texttt{fit\_joint\_SNR\_linear\_combo}}
+
+Same pattern, but now the per-group regressor is SNR instead of PN:
+
+\begin{verbatim}
+Ys, SNR_cols, coh_cols = [], [], []
+for up, ua, usn in zip(uvp_power_list,
+                       uvpspec_avg_power_list,
+                       uvpspec_SNR_list):
+    m = np.isfinite(ua)&np.isfinite(usn)&np.isfinite(up)
+    Ys.append(ua[m])        # P_inc
+    SNR_cols.append(usn[m]) # SNR(t)
+    coh_cols.append(up[m])  # P_coh
+\end{verbatim}
+
+Block-diagonal:
+
+\begin{verbatim}
+X_cols = block_diag_for(SNR_cols)
+X = np.column_stack(X_cols + [C])
+coefs = np.linalg.pinv(X) @ Y
+SNRa_list = coefs[:-1]
+slopeloss = coefs[-1]
+\end{verbatim}
+
+Model per group:
+\[
+  P_{\mathrm{inc}}^{(g)}(t_i) \approx
+  \alpha^{(g)} \, \mathrm{SNR}^{(g)}(t_i)
+  + m \, P_{\mathrm{coh}}^{(g)}(t_i).
+\]
+
+Here $\alpha^{(g)}$ is per-group scaling of SNR, and $m$ again is the global signal-loss slope.
+
+This model tests whether \emph{explicitly} including SNR as a regressor helps explain the mapping from coherent to incoherent PSPEC beyond just a linear relationship in $P_{\mathrm{coh}}$ and $P_N$.
+
+(In your current config \texttt{model\_SNR = False}, so it’s not used in the plots, but the math is there.)
+
+\section*{7. No-PN model: direct slope between \texorpdfstring{$P_{\mathrm{inc}}$}{P\_inc} and \texorpdfstring{$P_{\mathrm{coh}}$}{P\_coh} only}
+
+\subsection*{Function: \texttt{fit\_joint\_noPN\_linear\_combo}}
+
+This is the simplest global model:
+
+\begin{verbatim}
+Ys, coh_cols = [], []
+for up, ua in zip(uvp_power_list, uvpspec_avg_power_list):
+    m = np.isfinite(ua)&np.isfinite(up)
+    Ys.append(ua[m])
+    coh_cols.append(up[m])
+Y = np.concatenate(Ys)
+C = np.concatenate(coh_cols)
+
+X = np.column_stack([C])
+coefs = np.linalg.pinv(X) @ Y
+slopeloss = coefs[-1]  # a scalar
+Y_pred = X @ coefs
+\end{verbatim}
+
+Here:
+\[
+  P_{\mathrm{inc}}(t) \approx m \, P_{\mathrm{coh}}(t),
+\]
+with one global scalar $m$ and no noise terms.
+
+The least-squares solution is the classic slope:
+\[
+  m = \frac{\sum_t P_{\mathrm{coh}}(t) P_{\mathrm{inc}}(t)}
+           {\sum_t P_{\mathrm{coh}}(t)^2}.
+\]
+
+\textbf{Physical meaning:} this lumps noise into residuals. It gives the simplest ``compression factor'' between coherent and incoherent power across all groups. Comparing $m$ from this model to the PN model’s $m$ tells you how much explicitly modelling the noise changes your inferred loss.
+
+\section*{8. Goodness-of-fit \& parameter covariance}
+
+\subsection*{Function: \texttt{goodness\_of\_fit(X, Y, Y\_pred)}}
+
+Given design matrix $X$, data $Y$, and prediction $Y_{\text{pred}}$:
+
+\begin{itemize}[leftmargin=*]
+  \item Residuals:
+  \[
+    r_i = Y_i - Y_{\text{pred},i}.
+  \]
+
+  \item Sum of squared errors (SSE):
+  \[
+    \mathrm{SSE} = \sum_i r_i^2.
+  \]
+
+  \item Total sum of squares:
+  \[
+    \mathrm{SST} = \sum_i (Y_i - \bar{Y})^2,
+    \quad \bar{Y} = \frac{1}{N}\sum_i Y_i.
+  \]
+
+  \item Mean squared error (MSE):
+  \[
+    \mathrm{MSE} = \frac{\mathrm{SSE}}{N}.
+  \]
+
+  \item Root MSE:
+  \[
+    \mathrm{RMSE} = \sqrt{\mathrm{MSE}}.
+  \]
+
+  \item Mean absolute error:
+  \[
+    \mathrm{MAE} = \frac{1}{N}\sum_i |r_i|.
+  \]
+
+  \item Coefficient of determination:
+  \[
+    R^2 = 1 - \frac{\mathrm{SSE}}{\mathrm{SST}}.
+  \]
+\end{itemize}
+
+For parameter covariance, with $X \in \mathbb{R}^{N\times p}$:
+
+\begin{verbatim}
+MSE_samp = SSE / (N - p)
+XtX = X.T @ X
+inv_XtX = np.linalg.pinv(XtX)
+cov_beta = MSE_samp * inv_XtX
+\end{verbatim}
+
+This is the usual linear-regression result:
+\[
+  \widehat{\mathrm{Cov}}(\hat{\boldsymbol{\beta}}) = \hat{\sigma}^2 (X^\top X)^{-1},
+  \quad
+  \hat{\sigma}^2 = \frac{\mathrm{SSE}}{N-p}.
+\]
+
+You then take:
+
+\begin{itemize}[leftmargin=*]
+  \item \texttt{PN\_cov\_beta[-1, -1]} $\rightarrow$ variance of the \emph{slope-loss} coefficient $m$ in the PN model.
+  \item $\sigma_m = \sqrt{\mathrm{Var}(m)}$ is its 1-$\sigma$ uncertainty.
+\end{itemize}
+
+This lets you quote error bars on the loss ratio $1/m$ and the corresponding percentage loss.
+
+\section*{9. Putting it together: how these models diagnose PSPEC signal loss}
+
+Within \texttt{plot\_percent\_difference\_with\_1hrbin}, the key logic is:
+
+\begin{enumerate}[leftmargin=*]
+  \item \textbf{Collect data across all baselines for a given SPW \& pol}
+
+\begin{verbatim}
+*_, lst_r, up, ua, un, ups, usnr, _ = get_plot_data_all_blpairs(...)
+\end{verbatim}
+
+So you get:
+
+\begin{itemize}[leftmargin=*]
+  \item $P_{\mathrm{coh}}(t)$ (\texttt{up}),
+  \item $P_{\mathrm{inc}}(t)$ (\texttt{ua}),
+  \item $P_{N}(t)$ (\texttt{un}),
+  \item $P_S(t)$ real part (\texttt{ups}),
+  \item $\mathrm{SNR}(t)$ (\texttt{usnr}).
+\end{itemize}
+
+  \item \textbf{Segment in LST if desired}
+
+Using \texttt{bump\_n\_val\_segments\_by\_dips} on $P_{\mathrm{coh}}(t)$ and $P_{\mathrm{inc}}(t)$, you can identify LST ``bumps'' and valleys, which correspond to different sky regions or beam footprints. That allows you to see if loss is LST-dependent.
+
+  \item \textbf{Two-line log--log model}
+
+Using \texttt{joint\_piecewise\_linear\_fit} on $\log_{10} P_{\mathrm{coh}}$ vs.\ $\log_{10} P_{\mathrm{inc}}$, you estimate:
+
+\begin{itemize}[leftmargin=*]
+  \item A low-power slope $m_1$.
+  \item A high-power slope $m_2$.
+  \item Break $x_0$ corresponding to a particular coherent PS level.
+\end{itemize}
+
+The high-power slope $m_2 < 1$ signals compression of bright modes.
+
+  \item \textbf{Joint PN model}
+
+Using \texttt{fit\_joint\_PN\_linear\_combo}, you model:
+\[
+  P_{\mathrm{inc}}^{(g)}(t) \approx N_a^{(g)} P_N^{(g)}(t) + m P_{\mathrm{coh}}^{(g)}(t),
+\]
+with:
+
+\begin{itemize}[leftmargin=*]
+  \item Per-group $N_a^{(g)}$ to absorb noise normalisation.
+  \item Global $m$ capturing signal-loss.
+\end{itemize}
+
+This is a physically motivated decomposition:
+
+\begin{itemize}[leftmargin=*]
+  \item $P_N^{(g)}$ encodes variance of thermal noise for that group and time.
+  \item $P_{\mathrm{coh}}^{(g)}$ is your ``true'' sky signal as measured by the coherent estimator.
+  \item Any mismatch between $P_{\mathrm{inc}}$ and the naive sum $P_{\mathrm{coh}} + P_N$ is absorbed into $m$.
+\end{itemize}
+
+If the pipeline attenuates the coherent modes before they show up in the incoherent average, the fitted $m$ will depart from 1, giving a quantitative measure of signal loss.
+
+  \item \textbf{Alternative models (PSN, SNR)}
+
+\begin{itemize}[leftmargin=*]
+  \item \texttt{fit\_joint\_PSN\_linear\_combo} adds an extra per-group term $P_{SN}$ to test whether \emph{signal--noise coupling} improves the description of $P_{\mathrm{inc}}$.
+  \item \texttt{fit\_joint\_SNR\_linear\_combo} uses SNR as a regressor, probing whether the mapping depends explicitly on SNR beyond what $P_{\mathrm{coh}}$ and $P_N$ provide.
+\end{itemize}
+
+These are experiments to see if more refined noise modelling changes the inferred loss slope $m$.
+
+  \item \textbf{Error bars and diagnostics}
+
+The \texttt{goodness\_of\_fit} function gives you:
+
+\begin{itemize}[leftmargin=*]
+  \item Overall quality of the fit (R$^2$, RMSE, MSE\_samp).
+  \item Covariance of fitted parameters, especially var$(m)$.
+\end{itemize}
+
+That lets you say things like ``the loss factor $1/m$ is $0.85 \pm 0.03$'' and compare different models or subsets (different SPWs, LST ranges, or baseline groups).
+\end{enumerate}
+
+If you’d like, next step we can:
+
+\begin{itemize}[leftmargin=*]
+  \item Pick \emph{one} of these models (say the PN model) and write out the design matrix and solution explicitly for a toy example with 2 groups and 3 time samples each, just to make the block-diagonal structure and the $P_{\mathrm{inc}} \approx N_a P_N + m P_{\mathrm{coh}}$ relation absolutely concrete.
+\end{itemize}
+
+\end{document}

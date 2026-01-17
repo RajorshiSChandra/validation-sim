@@ -1,0 +1,29 @@
+nohup: ignoring input
+Loaded metadata from: /lustre/aoc/projects/hera/rchandra/H6C_Validation_Stats/validation-sim/outputs/eor-grf-256/nt17280-00288chunks-HERA_custom_subset_idealF_cba81417555edaffd87557575713cb61.txt-nonred_airytilt/fch0227_chunk00000.uvh5
+Nants_data: 9 Nbls: 45
+Found 7 redundant groups.
+Selected redundant group index 1: L = 14.61 m, A = 0.22°
+Number of baselines in group (incl. autos if present): 8
+redgrp: [(0, 1), (1, 2), (2, 3), (3, 4), (4, 5), (5, 6), (6, 7), (7, 8)]
+Cross-only baselines in group: 8
+Associated autos: [(0, 0), (1, 1), (2, 2), (3, 3), (4, 4), (5, 5), (6, 6), (7, 7), (8, 8)]
+
+=== Combined CROSS data ===
+Nbls: 8 Ntimes: 3600 Nfreqs: 89
+Unique antpairs (cross): [(0, 1), (1, 2), (2, 3), (3, 4), (4, 5), (5, 6), (6, 7), (7, 8)]
+Polarizations: [-5]
+
+=== Combined AUTOS data ===
+Nbls: 9 Ntimes: 3600 Nfreqs: 89
+Unique antpairs (autos): [(0, 0), (1, 1), (2, 2), (3, 3), (4, 4), (5, 5), (6, 6), (7, 7), (8, 8)]
+Polarizations: [-5]
+
+LSTs (cross) [hr]: [8.69904941e-07 1.38975473e-03 2.77865077e-03 ... 4.99583362e+00
+ 4.99722250e+00 4.99861140e+00]
+LSTs (autos) [hr]: [8.69904941e-07 1.38975473e-03 2.77865077e-03 ... 4.99583362e+00
+ 4.99722250e+00 4.99861140e+00]
+ideal_tag: idealF
+airy_tag : airytilt
+Cross output file: /lustre/aoc/projects/hera/rchandra/H6C_Validation_Stats/validation-sim/outputs/eor-grf-256/nt17280-00288chunks-HERA_custom_subset_idealF_cba81417555edaffd87557575713cb61.txt-nonred_airytilt/uvd_cross_idealF_airytilt_fch0227-0315_ck00000-00059.uvh5
+Autos output file: /lustre/aoc/projects/hera/rchandra/H6C_Validation_Stats/validation-sim/outputs/eor-grf-256/nt17280-00288chunks-HERA_custom_subset_idealF_cba81417555edaffd87557575713cb61.txt-nonred_airytilt/uvd_autos_idealF_airytilt_fch0227-0315_ck00000-00059.uvh5
+Done writing uvd_combined and uvd_autos.

@@ -2,10 +2,11 @@
 # None-number values should be quoted 
 
 paths:
-  beams: "/lustre/aoc/projects/hera/rchandra/H6C_Validation_Stats/hera-beams/beams"
+  beams: "/lustre/aoc/projects/hera/rchandra/H6C_Validation_Stats/hera-beams/HERA_beams"
 conda:
   # Path will be resolved
-  conda_path: "/home/rasch/anaconda3"
+  # conda_path: "/home/rasch/anaconda3"
+  conda_path: "/lustre/aoc/projects/hera/rchandra/miniconda3"
   environment_name: "myenv_validation_1"
 
 module:
@@ -15,13 +16,19 @@ module:
 slurm:
   # SLURM SBATCH options, listed as --flag: value
   # Flags not shown here should work
-  # There is no GPU on NRAO!
   cpu:
-    partition: "batch"  # Name of partition
-    nodes: 1  # Number of nodes
-    mem: "240GB"  # Memory with unit
-    ntasks: 16  # Number of tasks
+    partition: "hera"  # Name of partition
+    # nodes: 1  # Number of nodes
+    mem: "16GB"  # Memory with unit
+    ntasks: 1  # Number of tasks
     time: "0-04:00:00"  # slurm-aware time string format
+
+  gpu:
+    partition: "batch"  # Name of partition
+    nodes: 10  # Number of nodes
+    mem: "64GB"  # Memory with unit
+    ntasks: 16  # Number of tasks
+    time: "0-01:00:00"  # slurm-aware time string format
 
   # sky-model:
   #   time: "0-04:00:00"

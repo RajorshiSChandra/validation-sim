@@ -26,11 +26,11 @@ BEAMDIR = REPODIR / "beams"
 DIRFMT = "{sky_model}/{prefix}/nt17280-{chunks:05d}chunks-{layout}-{redundant}"
 FLFMT = "fch{fch:04d}_chunk{ch:05d}"
 
-def get_direc(sky_model:str, chunks: int, layout: str, redundant: bool, prefix: str = 'default'):
+def get_direc(sky_model:str, chunks: int, layout: str, redundant: bool, prefix: str = 'default', beamvar_type: str = 'beamdflt'):
     return Path(
         DIRFMT.format(
         sky_model=sky_model, prefix=prefix, chunks=chunks, layout=layout,
-        redundant="red" if redundant else 'nonred'
+        redundant="red" if redundant else 'nonred_' + beamvar_type,
     ))
     
 def get_file(chunk: int, channel: int, with_dir: bool = True, ext: str = None, **kw):

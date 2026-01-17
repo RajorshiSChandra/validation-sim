@@ -6,6 +6,13 @@ covariance for the H4C sims. The original filename was "do_signal_sim.py".
 """
 import subprocess
 import logging
+
+# Turn down noisy dependencies
+logging.getLogger("numba").setLevel(logging.WARNING)
+logging.getLogger("matplotlib").setLevel(logging.WARNING)
+logging.getLogger("redshifted_gaussian_fields").setLevel(logging.INFO)
+logging.getLogger("git").setLevel(logging.WARNING)
+
 import numpy as np
 from astropy import cosmology
 from redshifted_gaussian_fields import generator
@@ -15,8 +22,10 @@ from . import utils
 from ._cli_utils import _get_sbatch_program
 from .slurm import slurmify
 
-cns = Console()
-logger = logging.getLogger(__name__)
+print("Starting grf covariance code.")
+
+# cns = Console()
+# logger = logging.getLogger(__name__)
 
 def compute_grf_covariance(test_mode: bool = False, ell_max: int = 1250):
     freqs = utils.FREQS_DICT['H6C']
@@ -35,7 +44,8 @@ def compute_grf_covariance(test_mode: bool = False, ell_max: int = 1250):
     ell_axis = np.arange(0,ell_max+1)
 
     if test_mode:
-        cns.print("On test mode")
+        # cns.print("On test mode")
+        print("On test mode")
         nu_axis = nu_axis[500:502]
         ell_axis = ell_axis[:64]
 
@@ -44,17 +54,30 @@ def compute_grf_covariance(test_mode: bool = False, ell_max: int = 1250):
     eps = 1e-15
     gcfg = generator.GaussianCosmologicalFieldGenerator(cosmo, Pspec, nu_axis, del_nu, ell_axis, Np=Np, eps=eps)
 
-    cns.print("Computing covariance...")
+    # cns.print("Computing covariance...")
+    print("Computing covariance...")
     t1 = time.time()
     gcfg.compute_cross_frequency_angular_power_spectrum()
     t2 = time.time()
-    cns.print(f"Elapsed time: {(t2 - t1)/60.} minutes.")
+    # cns.print(f"Elapsed time: {(t2 - t1)/60.} minutes.")
+    print(f"Elapsed time: {(t2 - t1)/60.} minutes.")
 
     save_file_path = utils.SKYDIR / "raw" / "covariance.h5"
     gcfg.save_covariance_data(save_file_path)
-    cns.print(f"Saved covariance data to {save_file_path}.")
+    # cns.print(f"Saved covariance data to {save_file_path}.")
+    print(f"Saved covariance data to {save_file_path}.")
+    
+    print("Code ran")
 
-@slurmify('grf-covariance', time="2-12:00:00", defaulttasks=48, partition='RM-shared')
+@slurmify('grf-covariance',
+        #   outname = f'run_1.out', 
+          time="0-4:00:00", 
+          defaultmem = "48GB",
+          defaultnodes=1,
+          defaulttasks=1*16,          # 48 was default 
+        #   partition='RM-shared'
+          partition='hera',
+          )
 def run_compute_grf_covariance(
     test_mode: bool = False, ell_max: int = 1250,
 ):

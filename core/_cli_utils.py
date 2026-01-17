@@ -40,19 +40,25 @@ class IntRangeBuilder(click.IntRange):
 def combine_int_ranges(ctx, param, value) -> list[int]:
     """Combine multiple IntRangerBuilder outputs into one list."""
     # value should be a list of lists of ints
-    return sorted(set(sum(value, start=[])))
+    combine = sorted(set(sum(value, start=[]))) if value else []
+    return combine or None
 
 
-def check_ants(ctx, param, value):
-    """Check whether ants and layout are provided correctly together."""
-    ants = combine_int_ranges(ctx, param, value)
-    if not ants and not ctx.params["layout"]:
-        raise click.BadParameter("You must provide --layout or --ants")
-    if ants and ctx.params["layout"]:
-        raise click.BadParameter("Do not provide both --layout and --ants")
+# def check_ants(ctx, param, value):
+#     """Check whether ants and layout are provided correctly together."""
+#     ants = combine_int_ranges(ctx, param, value)
+#     layout = ctx.params.get("layout", None) #without this only ants does not work since layout is "expected"
+# #    if not ants and not ctx.params["layout"]:
+# #        raise click.BadParameter("You must provide --layout or --ants")
+# #   if ants and ctx.params["layout"]:
+# #        raise click.BadParameter("Do not provide both --layout and --ants")
+#     if not ants and not layout:
+#         raise click.BadParameter("You must provide --layout or --ants")
+#     if ants and layout:
+#         raise click.BadParameter("Do not provide both --layout and --ants")
 
-    if ants:
-        ctx.params["layout"] = list(ants)
+#     if ants:
+#         ctx.params["layout"] = list(ants)
 
 
 def parse_channels(channels: list[int], freq_range: tuple[float, float]) -> list[int]:
@@ -70,7 +76,6 @@ def parse_channels(channels: list[int], freq_range: tuple[float, float]) -> list
 
 class opts:
     """All the options for the top-level CLI."""
-
     layout = click.option(
         "--layout",
         default=None,
@@ -81,11 +86,12 @@ class opts:
         "-a",
         "--ants",
         type=IntRangeBuilder(0, 350, max_open=True),
-        callback=check_ants,
+        # callback=check_ants,
+        callback=combine_int_ranges,
         default=None,
         multiple=True,
         help="ants to use as a subset of the full HERA 350",
-        expose_value=False,
+        expose_value=True,
     )
     ideal_layout = click.option(
         "--ideal-layout/--not-ideal-layout",

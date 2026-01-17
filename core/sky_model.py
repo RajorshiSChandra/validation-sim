@@ -2,6 +2,12 @@
 import logging
 from functools import cache, cached_property
 
+# Turn down noisy dependencies
+logging.getLogger("numba").setLevel(logging.WARNING)
+logging.getLogger("matplotlib").setLevel(logging.WARNING)
+logging.getLogger("redshifted_gaussian_fields").setLevel(logging.INFO)
+logging.getLogger("git").setLevel(logging.WARNING)
+
 import h5py
 import healpy as hp
 import numpy as np
@@ -73,7 +79,10 @@ def dnds_franzen(s, a=None, norm=False):
 
 
 def make_grf_eor_model(
-    model_file: str, channels: list[int], label: str = ""
+    model_file: str, channels: list[int], label: str = "",
+    offset_mode: str = "none",
+    offset_value: float = 0.0,
+    floor_epsilon: float = 1e-6,
 ):
     """Make a GRF EoR SkyModel.
 
@@ -120,6 +129,20 @@ def make_grf_eor_model(
         with h5py.File(model_dir / model_file, 'r') as fl:
             
             hmaps = fl["healpix_maps"][fch]
+            
+        # -----------------------------
+        # Apply offset if requested (required for Matvis type simulators yet unable to handle negative brightness pixel
+        # such as those arising from Gaussian realizations around 0 mean Jy/sr)
+        # -----------------------------
+        if offset_mode == "constant":
+            # Add a fixed offset in Jy/sr before attaching units
+            hmaps = hmaps + offset_value
+        elif offset_mode == "shift_min":
+            # Make all pixels >= floor_epsilon (Jy/sr).
+            min_val = np.min(hmaps)
+            if min_val < floor_epsilon:
+                shift = floor_epsilon - min_val
+                hmaps = hmaps + shift
 
         hmaps <<= units.Jy / units.sr
 

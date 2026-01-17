@@ -37,6 +37,7 @@ def slurmify(
     jobname: str | None = None,
     outname: str = "%J.out",
     time: str | None = None,
+    defaultnodes: int | None = None,
     defaultgpu: bool = False,
     defaultmem: str | None = None,
     defaulttasks: int | None = None,
@@ -80,11 +81,14 @@ def slurmify(
                 slurm_defaults['ntasks'] = defaulttasks
             if partition is not None:
                 slurm_defaults['partition'] = partition
-                
+            if defaultnodes is not None:
+                slurm_defaults['nodes'] = defaultnodes
+
             if slurm_override is None:
                 slurm_override = {}
                 
             slurm_defaults |= slurm_override
+            print("slurm_defaults ", slurm_defaults)
             
             # Make the SBATCH script minus hera-sim-vis.py command
             program = _get_sbatch_program(gpu=gpu, slurm_override=slurm_defaults)

@@ -28,20 +28,44 @@ def cli():
 
 
 @cli.command
+# @_cli.opts.layout
+# @_cli.opts.ants
 @_cli.opts.add_opts
 @click.option("--simulator", type=click.Choice(["fftvis", "matvis", "fftvis64", "fftvis32", "matvis-cpu"]), default="matvis")
-def runsim(channels, freq_range, **kwargs):
+@click.option("--beam-map-csv", type=click.Path(exists=True, dir_okay=False, path_type=Path), help="CSV with columns: ant_number,beam_file (per-antenna beams; matvis only).")
+@click.option("--beamvar-type", type=click.Choice(['vivaldired', 'airyred', 'airyprb', 'airytilt']), help="Type of beam variation to use for non-redundant sims.")
+def runsim(layout, ants, channels, freq_range, **kwargs):
     """Run HERA validation simulations.
 
     Use the default parameters, configuration files, and directories for HERA sims
     (see make_obsparams.py).
     """
     from core.run_sim import run_validation_sim
+    
+    # Resolve layout/ants precedence here (transparent + debuggable)
+    if ants and layout:
+        raise click.BadParameter("Do not provide both --layout and --ants")
+    if ants:
+        layout = ants
+    if not ants and not layout:
+        raise click.BadParameter("You must provide --layout or --ants")
 
     channels = _cli.parse_channels(channels, freq_range)
-    if 'beam_interpolator' in kwargs:
-        del kwargs['beam_interpolator']
-    run_validation_sim(channels=channels, **kwargs)
+
+    # matvis-only gate for per-antenna beams
+    sim = kwargs.get("simulator", "matvis")
+    beam_map_csv = kwargs.get("beam_map_csv", None)
+    is_matvis = isinstance(sim, str) and sim.lower().startswith("matvis")
+    if beam_map_csv is not None and not is_matvis:
+        logger.warning("[runsim] --beam-map-csv supplied but simulator=%r is not matvis; "
+                       "ignoring per-antenna beams and falling back to single-beam teleconfig.",
+                       sim)
+        kwargs.pop("beam_map_csv", None)
+
+    if "beam_interpolator" in kwargs:
+        kwargs.pop("beam_interpolator")
+
+    run_validation_sim(layout=layout, ants=ants, channels=channels, **kwargs)
 
 
 @cli.command("make-obsparams")
@@ -56,14 +80,42 @@ def runsim(channels, freq_range, **kwargs):
 @_cli.opts.redundant
 @_cli.opts.do_time_chunks
 @click.option("--beam-interpolator", default='az_za_map_coordinates')
+@click.option("--simulator", type=click.Choice(["fftvis", "matvis", "fftvis64", "fftvis32", "matvis-cpu"]), default="matvis", help="Pick the visibility backend; per-antenna beams are only admitted for matvis.")
+@click.option("--beam-map-csv", type=click.Path(exists=True, dir_okay=False, path_type=Path), help="CSV with columns: ant_number,beam_file (per-antenna beams; matvis only).")
+@click.option("--beamvar-type", type=click.Choice(['vivaldired', 'airyred', 'airyprb', 'airytilt']), help="Type of beam variation to use for non-redundant sims.")
 def make_obsparams(
-    layout, ideal_layout, freq_range, channels, sky_model, n_time_chunks, 
-    spline_interp_order, beam_interpolator, redundant, do_time_chunks
+    layout, ants, ideal_layout, freq_range, channels, sky_model, n_time_chunks, 
+    spline_interp_order, beam_interpolator, redundant, do_time_chunks,
+    simulator, beam_map_csv, beamvar_type
 ):
     """Make obsparams for H4C simulations given a sky model and frequencies."""
     from core.obsparams import make_hera_obsparam
-
+    
+    # Resolve layout/ants precedence here (transparent + debuggable)
+    if ants and layout:
+        raise click.BadParameter("Do not provide both --layout and --ants")
+    if ants:
+        layout = ants
+    if not ants and not layout:
+        raise click.BadParameter("You must provide --layout or --ants")
+    
     channels = _cli.parse_channels(channels, freq_range)
+    
+    # matvis-only gate for per-antenna beams (give helpful message early)
+    is_matvis = isinstance(simulator, str) and simulator.lower().startswith("matvis")
+    if beam_map_csv is not None and not is_matvis:
+        logger.warning("[make-obsparams] --beam-map-csv supplied but simulator=%r is not matvis; "
+                       "ignoring per-antenna beams and emitting single-beam teleconfig.",
+                       simulator)
+        beam_map_csv = None
+         
+    # ants-layout test
+    print("do_time_chunks are ", do_time_chunks)
+    print("layout passed is ", layout)
+    # print("layout_user is ", layout_user)
+    print("ideal_layout is ", ideal_layout)
+    print("channels are ", channels)
+    # print("ants-layout is ", ants)
 
     make_hera_obsparam(
         layout=layout,
@@ -74,10 +126,13 @@ def make_obsparams(
         spline_interp_order=spline_interp_order,
         beam_interpolator=beam_interpolator,
         redundant=redundant,
-        do_chunks=do_time_chunks
+        do_chunks=do_time_chunks,
+#        simulator=simulator,
+        beam_map_csv=beam_map_csv,
+        beamvar_type=beamvar_type,
     )
 
-
+# print("test 349678")
 option_nside = click.option("--nside", default=256, show_default=True)
 
 
@@ -127,6 +182,8 @@ def sky_model(
                 f"healpix-maps{nside}{label}.h5",
                 channels=channels,
                 label=label,
+                # offset_mode="constant", offset_value=1e-5,
+                offset_mode="shift_min", floor_epsilon=1e-6,
             )
         else:
             raise ValueError(f"Unknown sky model: {sky_model}")
@@ -162,8 +219,11 @@ def grf_covariance(test_mode, ell_max, local):
     
     if local:
         compute_grf_covariance(test_mode, ell_max=ell_max)
+        print("running compute_grf_covariance in test mode ", test_mode)
     else:
         run_compute_grf_covariance(test_mode, ell_max=ell_max)
+        print("running run_compute_grf_covariance in test mode", test_mode)
+        print("freqs are ", len(1e-6*utils.FREQS_DICT['H6C']), 1e-6*utils.FREQS_DICT['H6C'])
         
 @cli.command("cornerturn")
 @_cli.opts.sky_model
