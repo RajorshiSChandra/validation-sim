@@ -207,6 +207,57 @@ class opts:
     phase_center_name = click.option(
         "--phase-center-name", default="zenith", help='name for the phase center'
     )
+    
+    # Analytical beam options start
+    analytic_beam_class = click.option(
+        "--analytic-beam-class",
+        type=click.Choice([
+            # "AiryBeam",
+            # "GaussianBeam", 
+            "hera_sim.beams.PolyBeam",
+            "hera_sim.beams.ZernikeBeam",
+            "hera_sim.beams.PerturbedPolyBeam",
+        ]),
+        default=None,
+        help="Use an analytical beam model instead of UVBeam file",
+    )
+    analytic_beam_diameter = click.option(
+        "--analytic-beam-diameter",
+        type=float,
+        default=14.0,
+        help="Dish diameter in meters (for AiryBeam)",
+    )
+    analytic_beam_sigma = click.option(
+        "--analytic-beam-sigma",
+        type=float,
+        default=0.15,
+        help="Beam sigma in radians (for GaussianBeam)",
+    )
+    analytic_beam_ref_freq = click.option(
+        "--analytic-beam-ref-freq",
+        type=float,
+        default=1.0e8,
+        help="Reference frequency in Hz (for PolyBeam/ZernikeBeam)",
+    )
+    analytic_beam_spectral_index = click.option(
+        "--analytic-beam-spectral-index",
+        type=float,
+        default=-0.6975,
+        help="Spectral index for frequency scaling (for PolyBeam/ZernikeBeam)",
+    )
+    analytic_beam_coeffs_file = click.option(
+        "--analytic-beam-coeffs-file",
+        type=click.Path(exists=True, dir_okay=False, path_type=Path),
+        default=None,
+        help="Path to JSON/YAML file containing beam_coeffs array",
+    )
+    analytic_beam_preset = click.option(
+        "--analytic-beam-preset",
+        type=click.Choice(["fagnoni19", "custom"]),
+        default=None,
+        help="Use a preset coefficient set (fagnoni19 for HERA)",
+    )
+    # Analytical beam options end
 
     @classmethod
     def add_opts(cls, fnc, ignore=None):

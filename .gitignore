@@ -31,3 +31,4 @@ AFalse_*
 ATrue_*
 beams/*.fits
 notebooks/output_vis_sigloss_check_out/Sig_Loss_250925_xx/*
+docs/*

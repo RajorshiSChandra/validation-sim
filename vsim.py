@@ -9,6 +9,7 @@ from rich.logging import RichHandler
 
 from core import _cli_utils as _cli
 from core import utils
+from core.anabeam_config import build_analytic_beam_config
 logging.basicConfig(
     level="NOTSET",
     format="%(message)s",
@@ -83,15 +84,34 @@ def runsim(layout, ants, channels, freq_range, **kwargs):
 @click.option("--simulator", type=click.Choice(["fftvis", "matvis", "fftvis64", "fftvis32", "matvis-cpu"]), default="matvis", help="Pick the visibility backend; per-antenna beams are only admitted for matvis.")
 @click.option("--beam-map-csv", type=click.Path(exists=True, dir_okay=False, path_type=Path), help="CSV with columns: ant_number,beam_file (per-antenna beams; matvis only).")
 @click.option("--beamvar-type", type=click.Choice(['vivaldired', 'airyred', 'airyprb', 'airytilt']), help="Type of beam variation to use for non-redundant sims.")
+
+# Analytical beam options start
+@click.option("--analytic-beam-class", type=click.Choice([
+    # "AiryBeam", "GaussianBeam", 
+    "hera_sim.beams.PolyBeam", "hera_sim.beams.ZernikeBeam",
+    "hera_sim.beams.PerturbedPolyBeam"
+]), default=None, help="Analytical beam class to use")
+@click.option("--analytic-beam-diameter", type=float, default=14.0, help="Diameter for AiryBeam (m)")
+@click.option("--analytic-beam-sigma", type=float, default=0.15, help="Sigma for GaussianBeam (rad)")
+@click.option("--analytic-beam-ref-freq", type=float, default=1.0e8, help="Reference freq (Hz)")
+@click.option("--analytic-beam-spectral-index", type=float, default=-0.6975, help="Spectral index")
+@click.option("--analytic-beam-coeffs-file", type=click.Path(exists=True, path_type=Path), default=None)
+@click.option("--analytic-beam-preset", type=click.Choice(["fagnoni19", "custom"]), default=None)
+# Analytical beam options end
+
 def make_obsparams(
     layout, ants, ideal_layout, freq_range, channels, sky_model, n_time_chunks, 
     spline_interp_order, beam_interpolator, redundant, do_time_chunks,
-    simulator, beam_map_csv, beamvar_type
+    simulator, beam_map_csv, beamvar_type, 
+    # analytical beam params
+    analytic_beam_class, analytic_beam_diameter, analytic_beam_sigma,
+    analytic_beam_ref_freq, analytic_beam_spectral_index,
+    analytic_beam_coeffs_file, analytic_beam_preset,
 ):
     """Make obsparams for H4C simulations given a sky model and frequencies."""
     from core.obsparams import make_hera_obsparam
     
-    # Resolve layout/ants precedence here (transparent + debuggable)
+    # Resolve layout/ants precedence 
     if ants and layout:
         raise click.BadParameter("Do not provide both --layout and --ants")
     if ants:
@@ -100,6 +120,22 @@ def make_obsparams(
         raise click.BadParameter("You must provide --layout or --ants")
     
     channels = _cli.parse_channels(channels, freq_range)
+    
+    # Build analytic_beam dict if class is specified
+    analytic_beam = None
+    if analytic_beam_class is not None:
+        analytic_beam = build_analytic_beam_config(
+            beam_class=analytic_beam_class,
+            diameter=analytic_beam_diameter,
+            sigma=analytic_beam_sigma,
+            ref_freq=analytic_beam_ref_freq,
+            spectral_index=analytic_beam_spectral_index,
+            coeffs_file=analytic_beam_coeffs_file,
+            preset=analytic_beam_preset,
+        )
+        # Analytical beams don't use beam_map_csv
+        beam_map_csv = None
+        logger.info(f"Using analytical beam: {analytic_beam_class}")
     
     # matvis-only gate for per-antenna beams (give helpful message early)
     is_matvis = isinstance(simulator, str) and simulator.lower().startswith("matvis")
@@ -130,6 +166,7 @@ def make_obsparams(
 #        simulator=simulator,
         beam_map_csv=beam_map_csv,
         beamvar_type=beamvar_type,
+        analytic_beam=analytic_beam
     )
 
 # print("test 349678")

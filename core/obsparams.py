@@ -154,10 +154,12 @@ def make_tele_config(
     default_beam_file: Path | None = None,
     beamvar_type: str = 'beamdflt',
     ideal_layout: bool = True,
+    analytic_beam: dict | None = None,
 ) -> Path:
     """
     Make a telescope config file.
 
+    If analytic_beam is provided: use !AnalyticBeam tag
     If beam_map_csv is None : single-beam config default
     else : build mapping : BeamID : !UVBeam filename
     """
@@ -166,9 +168,25 @@ def make_tele_config(
         default_beam_file = Path(utils.BEAMDIR) / "NF_HERA_Vivaldi_efield_beam_extrap.fits"
 
     config = []
+    
+    #  Analytical beam pathing
+    if analytic_beam is not None:
+        config.append("beam_paths:")
+        config.append("  0: !AnalyticBeam")
+        config.append(f"    class: {analytic_beam['class']}")
+        
+        # Add all other parameters from the config dict
+        for key, value in analytic_beam.items():
+            if key == 'class':
+                continue
+            if isinstance(value, list):
+                # Format list nicely for YAML
+                config.append(f"    {key}: {value}")
+            else:
+                config.append(f"    {key}: {value}")
 
     # Per-antenna: build beam_paths from mapping
-    if beam_map_csv is not None:
+    elif beam_map_csv is not None:
         mapping = read_beam_map_csv(beam_map_csv)
         unique_files = {}
         for ant in sorted(mapping):
@@ -205,7 +223,11 @@ def make_tele_config(
 
     # filename with beam_map tags
     tag = f"{freq_interp_kind}_{spline_interp_order}"
-    if beam_map_csv is not None:
+    if analytic_beam is not None:
+        # Include beam class in filename for accessibility
+        beam_tag = analytic_beam['class'].replace('.', '_').replace('hera_sim_beams_', '')
+        tag = f"{tag}_analytic_{beam_tag}"
+    elif beam_map_csv is not None:
         bm_blob = Path(beam_map_csv).read_bytes()
         ideal_tag = "idealT" if ideal_layout else "idealF"
         tag = f"{tag}_beammapperant_{ideal_tag}_{beamvar_type}"
@@ -243,6 +265,7 @@ def make_hera_obsparam(
     beam_map_csv = None,		#per antenna beamfile (explicit path pass)
     default_beam_file = None,		#default antenna beamfile (usually None since harcoded option in make_tele_config() to avoid breaking legacy code
     beamvar_type: str = 'beamdflt',
+    analytic_beam: dict | None = None,
 ):
     """Create obsparam files (one per channel × chunk)"""
     freq_vals = utils.FREQS_DICT[season][channels]
@@ -304,7 +327,19 @@ def make_hera_obsparam(
     ###############################New Part############################################
     # If per-antenna beams provided, produce a copy of the layout with BeamID column
     # and remember the new path; otherwise keep legacy layout.
-    if beam_map_csv is not None:
+    if analytic_beam is not None:
+        # Analytical beam mode - ignore beam_map_csv
+        tele_config_file = make_tele_config(
+            freq_interp_kind=freq_interp_kind,
+            spline_interp_order=spline_interp_order,
+            beam_interpolator=beam_interpolator,
+            beam_map_csv=None,
+            default_beam_file=None,
+            beamvar_type=beamvar_type,
+            ideal_layout=ideal_layout,
+            analytic_beam=analytic_beam,  # <-- NEW
+        )
+    elif beam_map_csv is not None:
         # Build mapping ant to BeamID
         mapping = read_beam_map_csv(beam_map_csv)
         # Assign IDs by first-appearance of unique files
