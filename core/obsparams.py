@@ -80,7 +80,7 @@ def read_beam_map_csv(beam_map_csv: Path) -> dict[int, Path]:
     #Path(dst).write_text('\n'.join(out) + '\n')
     #return dst
 
-def write_array_with_beamids(src_layout: Path, beamid_by_ant: dict[int, int]) -> Path:
+def write_array_with_beamids(src_layout: Path, beamid_by_ant: dict[int, int], beam_map_csv=None) -> Path:
     """
     Read a whitespace-separated array layout (header: Name Number [BeamID] E N U ...),
     inject/overwrite a BeamID column, and write a tab-separated copy.
@@ -139,7 +139,13 @@ def write_array_with_beamids(src_layout: Path, beamid_by_ant: dict[int, int]) ->
 
         out_lines.append("\t".join(row))
 
-    dst = src_layout.with_suffix(src_layout.suffix + ".with_beamids")
+    tag = ""
+    if beam_map_csv is not None:
+        h = hashlib.md5(Path(beam_map_csv).read_bytes()).hexdigest()[:8]
+        tag = f".{Path(beam_map_csv).stem}.{h}"
+
+    # dst = src_layout.with_suffix(src_layout.suffix + ".with_beamids")
+    dst = src_layout.with_suffix(src_layout.suffix + f"{tag}.with_beamids")
     # print("printing layout file name" + dst)
     Path(dst).write_text("\n".join(out_lines) + "\n")
     return dst
@@ -154,12 +160,14 @@ def make_tele_config(
     default_beam_file: Path | None = None,
     beamvar_type: str = 'beamdflt',
     ideal_layout: bool = True,
-    analytic_beam: dict | None = None,
+    analytic_beam: tuple | None = None,
+    analytic_beam_map: tuple | None = None,  # NEW: for multi-beam configs
 ) -> Path:
     """
     Make a telescope config file.
 
-    If analytic_beam is provided: use !AnalyticBeam tag
+    If analytic_beam_map is provided: use multiple !AnalyticBeam entries
+    If analytic_beam is provided: use single !AnalyticBeam tag
     If beam_map_csv is None : single-beam config default
     else : build mapping : BeamID : !UVBeam filename
     """
@@ -169,8 +177,34 @@ def make_tele_config(
 
     config = []
     
-    #  Analytical beam pathing
-    if analytic_beam is not None:
+    # Multi-analytic beam mode (NEW)
+    if analytic_beam_map is not None:
+        # analytic_beam_map is a tuple of (beam_id, (param_tuples...)) pairs
+        # Convert back to dict
+        beam_defs = {}
+        for item in analytic_beam_map:
+            if item[0] == "_default_beam_id":
+                continue  # Skip metadata
+            beam_id = item[0]
+            # Convert tuple of tuples back to dict
+            beam_params = dict(item[1])
+            # Convert nested tuples back to lists for beam_coeffs
+            if "beam_coeffs" in beam_params and isinstance(beam_params["beam_coeffs"], tuple):
+                beam_params["beam_coeffs"] = list(beam_params["beam_coeffs"])
+            beam_defs[beam_id] = beam_params
+        
+        config.append("beam_paths:")
+        for beam_id in sorted(beam_defs.keys()):
+            params = beam_defs[beam_id]
+            config.append(f"  {beam_id}: !AnalyticBeam")
+            for key, value in params.items():
+                if isinstance(value, list):
+                    config.append(f"    {key}: {value}")
+                else:
+                    config.append(f"    {key}: {value}")
+    
+    #  Single analytical beam pathing
+    elif analytic_beam is not None:
         config.append("beam_paths:")
         config.append("  0: !AnalyticBeam")
         config.append(f"    class: {analytic_beam['class']}")
@@ -225,7 +259,8 @@ def make_tele_config(
     tag = f"{freq_interp_kind}_{spline_interp_order}"
     if analytic_beam is not None:
         # Include beam class in filename for accessibility
-        beam_tag = analytic_beam['class'].replace('.', '_').replace('hera_sim_beams_', '')
+        beam_dict = dict(analytic_beam)
+        beam_tag = beam_dict['class'].replace('.', '_').replace('hera_sim_beams_', '')
         tag = f"{tag}_analytic_{beam_tag}"
     elif beam_map_csv is not None:
         bm_blob = Path(beam_map_csv).read_bytes()
@@ -282,7 +317,7 @@ def make_hera_obsparam(
     Ntimes_per_chunk = NTIMES // chunks
 
 #    if isinstance(layout, str):
-#    	# it's a name
+#    	# it's a namey
 #        layout_file = utils.make_hera_layout(name=layout, ideal=ideal_layout)
 #    elif isinstance(layout, Path):
 #        layout_file = layout
@@ -327,6 +362,17 @@ def make_hera_obsparam(
     ###############################New Part############################################
     # If per-antenna beams provided, produce a copy of the layout with BeamID column
     # and remember the new path; otherwise keep legacy layout.
+    analytic_beam_tuple = None
+    if analytic_beam is not None:
+        # Convert nested lists to tuples for hashability
+        analytic_beam_hashable = {}
+        for k, v in analytic_beam.items():
+            if isinstance(v, list):
+                analytic_beam_hashable[k] = tuple(v)
+            else:
+                analytic_beam_hashable[k] = v
+        analytic_beam_tuple = tuple(sorted(analytic_beam_hashable.items()))
+        
     if analytic_beam is not None:
         # Analytical beam mode - ignore beam_map_csv
         tele_config_file = make_tele_config(
@@ -337,7 +383,7 @@ def make_hera_obsparam(
             default_beam_file=None,
             beamvar_type=beamvar_type,
             ideal_layout=ideal_layout,
-            analytic_beam=analytic_beam,  # <-- NEW
+            analytic_beam=analytic_beam_tuple,  # <-- NEW
         )
     elif beam_map_csv is not None:
         # Build mapping ant to BeamID
@@ -351,7 +397,7 @@ def make_hera_obsparam(
                 unique_files[f] = len(unique_files)
             beamid_by_ant[ant] = unique_files[f]
         # Write layout copy with BeamID column
-        layout_file = write_array_with_beamids(layout_file, beamid_by_ant)
+        layout_file = write_array_with_beamids(layout_file, beamid_by_ant, beam_map_csv=beam_map_csv)
         # Write a telescope config with beam_paths for all IDs
         tele_config_file = make_tele_config(
             freq_interp_kind=freq_interp_kind,
@@ -361,6 +407,7 @@ def make_hera_obsparam(
             default_beam_file=default_beam_file,
             beamvar_type=beamvar_type,
             ideal_layout=ideal_layout,
+            analytic_beam=None,
         )
     else:
         tele_config_file = make_tele_config(
@@ -371,6 +418,7 @@ def make_hera_obsparam(
             default_beam_file=default_beam_file,
             beamvar_type=beamvar_type,
             ideal_layout=ideal_layout,
+            analytic_beam=None,
         )
     ####################################################################################
 

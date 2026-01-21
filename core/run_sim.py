@@ -50,6 +50,7 @@ def run_validation_sim(
     phase_center_name: str = 'zenith',
     beam_map_csv: Path | None = None,
     beamvar_type: str = 'beamdflt',
+    analytic_beam: tuple | None = None,
 ):
     """Run a full validation sim on SLURM compute."""
     sgpu = "gpu" if gpu else "cpu"
@@ -90,6 +91,7 @@ def run_validation_sim(
 #        simulator=simulator,
         beam_map_csv=beam_map_csv,
         beamvar_type=beamvar_type,
+        analytic_beam=analytic_beam
     )
     if not layout_file.exists():
         raise ValueError(f"Error in creating layout file: {layout_file}")

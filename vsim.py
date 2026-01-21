@@ -35,7 +35,24 @@ def cli():
 @click.option("--simulator", type=click.Choice(["fftvis", "matvis", "fftvis64", "fftvis32", "matvis-cpu"]), default="matvis")
 @click.option("--beam-map-csv", type=click.Path(exists=True, dir_okay=False, path_type=Path), help="CSV with columns: ant_number,beam_file (per-antenna beams; matvis only).")
 @click.option("--beamvar-type", type=click.Choice(['vivaldired', 'airyred', 'airyprb', 'airytilt']), help="Type of beam variation to use for non-redundant sims.")
-def runsim(layout, ants, channels, freq_range, **kwargs):
+# Analytical beam options start
+@click.option("--analytic-beam-class", type=click.Choice([
+    "AiryBeam", "GaussianBeam", "hera_sim.beams.PolyBeam", 
+    "hera_sim.beams.ZernikeBeam", "hera_sim.beams.PerturbedPolyBeam"
+]), default=None, help="Analytical beam class to use")
+@click.option("--analytic-beam-diameter", type=float, default=14.0, help="Diameter for AiryBeam (m)")
+@click.option("--analytic-beam-sigma", type=float, default=0.15, help="Sigma for GaussianBeam (rad)")
+@click.option("--analytic-beam-ref-freq", type=float, default=1.0e8, help="Reference freq (Hz)")
+@click.option("--analytic-beam-spectral-index", type=float, default=-0.6975, help="Spectral index")
+@click.option("--analytic-beam-coeffs-file", type=click.Path(exists=True, path_type=Path), default=None)
+@click.option("--analytic-beam-preset", type=click.Choice(["fagnoni19"]), default=None)
+# Analytical beam options end
+def runsim(layout, ants, channels, freq_range,
+           simulator, beam_map_csv, beamvar_type,
+           analytic_beam_class, analytic_beam_diameter, analytic_beam_sigma,
+           analytic_beam_ref_freq, analytic_beam_spectral_index,
+           analytic_beam_coeffs_file, analytic_beam_preset,
+           **kwargs):
     """Run HERA validation simulations.
 
     Use the default parameters, configuration files, and directories for HERA sims
@@ -43,7 +60,7 @@ def runsim(layout, ants, channels, freq_range, **kwargs):
     """
     from core.run_sim import run_validation_sim
     
-    # Resolve layout/ants precedence here (transparent + debuggable)
+    # Resolve layout/ants precedence 
     if ants and layout:
         raise click.BadParameter("Do not provide both --layout and --ants")
     if ants:
@@ -52,21 +69,48 @@ def runsim(layout, ants, channels, freq_range, **kwargs):
         raise click.BadParameter("You must provide --layout or --ants")
 
     channels = _cli.parse_channels(channels, freq_range)
+    
+    # Build analytic_beam config if specified
+    analytic_beam = None
+    if analytic_beam_class is not None:
+        analytic_beam = build_analytic_beam_config(
+            beam_class=analytic_beam_class,
+            diameter=analytic_beam_diameter,
+            sigma=analytic_beam_sigma,
+            ref_freq=analytic_beam_ref_freq,
+            spectral_index=analytic_beam_spectral_index,
+            coeffs_file=analytic_beam_coeffs_file,
+            preset=analytic_beam_preset,
+        )
+        # Analytical beams override per-antenna beams
+        beam_map_csv = None
+        beamvar_type = None
+        logger.info(f"Using analytical beam: {analytic_beam_class}")
 
     # matvis-only gate for per-antenna beams
-    sim = kwargs.get("simulator", "matvis")
-    beam_map_csv = kwargs.get("beam_map_csv", None)
+    # sim = kwargs.get("simulator", "matvis")
+    # beam_map_csv = kwargs.get("beam_map_csv", None)
+    sim = simulator
     is_matvis = isinstance(sim, str) and sim.lower().startswith("matvis")
     if beam_map_csv is not None and not is_matvis:
         logger.warning("[runsim] --beam-map-csv supplied but simulator=%r is not matvis; "
                        "ignoring per-antenna beams and falling back to single-beam teleconfig.",
                        sim)
-        kwargs.pop("beam_map_csv", None)
+        # kwargs.pop("beam_map_csv", None)
+        beam_map_csv = None
 
     if "beam_interpolator" in kwargs:
         kwargs.pop("beam_interpolator")
 
-    run_validation_sim(layout=layout, ants=ants, channels=channels, **kwargs)
+    run_validation_sim(
+        layout=layout, 
+        ants=ants, 
+        channels=channels, 
+        simulator=simulator,
+        beam_map_csv=beam_map_csv,
+        beamvar_type=beamvar_type,
+        analytic_beam=analytic_beam,
+        **kwargs)
 
 
 @cli.command("make-obsparams")
