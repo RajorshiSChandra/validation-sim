@@ -1,5 +1,37 @@
 import json
 
+def read_analytic_beam_map(map_file: Path) -> tuple[dict[int, dict], dict[int, int]]:
+    """
+    Read an analytic beam map YAML file.
+    
+    Returns
+    -------
+    beam_definitions : dict[int, dict]
+        Mapping from beam_id to full beam config dict (class, ref_freq, beam_coeffs, etc.)
+    antenna_to_beamid : dict[int, int]
+        Mapping from antenna number to beam_id
+    """
+    import yaml
+    with open(map_file) as f:
+        data = yaml.safe_load(f)
+    
+    defaults = data.get("defaults", {})
+    beam_defs_raw = data.get("beam_definitions", {})
+    antenna_mapping = data.get("antenna_mapping", {})
+    default_beam_id = data.get("default_beam_id", 0)
+    
+    # Merge defaults with per-beam overrides
+    beam_definitions = {}
+    for beam_id, beam_params in beam_defs_raw.items():
+        full_config = dict(defaults)
+        full_config.update(beam_params)
+        beam_definitions[int(beam_id)] = full_config
+    
+    antenna_to_beamid = {int(ant): int(bid) for ant, bid in antenna_mapping.items()}
+    beam_definitions["_default_beam_id"] = default_beam_id
+    
+    return beam_definitions, antenna_to_beamid
+
 def build_analytic_beam_config(
     beam_class: str,
     diameter: float = 14.0,

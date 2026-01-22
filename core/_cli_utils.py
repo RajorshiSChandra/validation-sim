@@ -259,6 +259,13 @@ class opts:
         default=None,
         help="Use a preset coefficient set (fagnoni19 for HERA)",
     )
+    analytic_beam_map_file = click.option(
+        "--analytic-beam-map-file",
+        type=click.Path(exists=True, dir_okay=False, path_type=Path),
+        default=None,
+        help="YAML file mapping antennas to different analytical beam configs. "
+             "See beams/analytic_beam_map_example.yaml for format.",
+    )
     # Analytical beam options end
 
     @classmethod

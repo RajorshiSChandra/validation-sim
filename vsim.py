@@ -46,12 +46,15 @@ def cli():
 @click.option("--analytic-beam-spectral-index", type=float, default=-0.6975, help="Spectral index")
 @click.option("--analytic-beam-coeffs-file", type=click.Path(exists=True, path_type=Path), default=None)
 @click.option("--analytic-beam-preset", type=click.Choice(["fagnoni19"]), default=None)
+@click.option("--analytic-beam-map-file", type=click.Path(exists=True, path_type=Path), default=None,
+              help="YAML file mapping antennas to different analytical beam configs")
 # Analytical beam options end
 def runsim(layout, ants, channels, freq_range,
            simulator, beam_map_csv, beamvar_type,
            analytic_beam_class, analytic_beam_diameter, analytic_beam_sigma,
            analytic_beam_ref_freq, analytic_beam_spectral_index,
            analytic_beam_coeffs_file, analytic_beam_preset,
+           analytic_beam_map_file,
            **kwargs):
     """Run HERA validation simulations.
 
@@ -72,16 +75,22 @@ def runsim(layout, ants, channels, freq_range,
     
     # Build analytic_beam config if specified
     analytic_beam = None
-    if analytic_beam_class is not None:
+    analytic_beam_map_file_path = None
+    if analytic_beam_map_file is not None:
+        analytic_beam_map_file_path = Path(analytic_beam_map_file)
+        beam_map_csv = None  # multi-beam overrides UVBeam csv
+        beamvar_type = None
+        logger.info(f"Using multi-beam analytical mode from: {analytic_beam_map_file_path}")
+    elif analytic_beam_class is not None:
         analytic_beam = build_analytic_beam_config(
-            beam_class=analytic_beam_class,
-            diameter=analytic_beam_diameter,
-            sigma=analytic_beam_sigma,
-            ref_freq=analytic_beam_ref_freq,
-            spectral_index=analytic_beam_spectral_index,
-            coeffs_file=analytic_beam_coeffs_file,
-            preset=analytic_beam_preset,
-        )
+                        beam_class=analytic_beam_class,
+                        diameter=analytic_beam_diameter,
+                        sigma=analytic_beam_sigma,
+                        ref_freq=analytic_beam_ref_freq,
+                        spectral_index=analytic_beam_spectral_index,
+                        coeffs_file=analytic_beam_coeffs_file,
+                        preset=analytic_beam_preset,
+                        )
         # Analytical beams override per-antenna beams
         beam_map_csv = None
         beamvar_type = None
@@ -110,6 +119,7 @@ def runsim(layout, ants, channels, freq_range,
         beam_map_csv=beam_map_csv,
         beamvar_type=beamvar_type,
         analytic_beam=analytic_beam,
+        analytic_beam_map_file=analytic_beam_map_file_path,
         **kwargs)
 
 

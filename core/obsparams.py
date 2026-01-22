@@ -177,32 +177,26 @@ def make_tele_config(
 
     config = []
     
-    # Multi-analytic beam mode (NEW)
+    # Multiple analytic beam input
+        # Multi-analytic beam mode (NEW)
     if analytic_beam_map is not None:
-        # analytic_beam_map is a tuple of (beam_id, (param_tuples...)) pairs
-        # Convert back to dict
+        # Convert tuple back to dict
         beam_defs = {}
-        for item in analytic_beam_map:
-            if item[0] == "_default_beam_id":
-                continue  # Skip metadata
-            beam_id = item[0]
-            # Convert tuple of tuples back to dict
-            beam_params = dict(item[1])
-            # Convert nested tuples back to lists for beam_coeffs
-            if "beam_coeffs" in beam_params and isinstance(beam_params["beam_coeffs"], tuple):
-                beam_params["beam_coeffs"] = list(beam_params["beam_coeffs"])
-            beam_defs[beam_id] = beam_params
+        for beam_id, params_tuple in analytic_beam_map:
+            if beam_id == "_default_beam_id":
+                continue
+            params = dict(params_tuple)
+            if "beam_coeffs" in params and isinstance(params["beam_coeffs"], tuple):
+                params["beam_coeffs"] = list(params["beam_coeffs"])
+            beam_defs[beam_id] = params
         
         config.append("beam_paths:")
         for beam_id in sorted(beam_defs.keys()):
             params = beam_defs[beam_id]
             config.append(f"  {beam_id}: !AnalyticBeam")
             for key, value in params.items():
-                if isinstance(value, list):
-                    config.append(f"    {key}: {value}")
-                else:
-                    config.append(f"    {key}: {value}")
-    
+                config.append(f"    {key}: {value}")
+
     #  Single analytical beam pathing
     elif analytic_beam is not None:
         config.append("beam_paths:")
@@ -257,7 +251,12 @@ def make_tele_config(
 
     # filename with beam_map tags
     tag = f"{freq_interp_kind}_{spline_interp_order}"
-    if analytic_beam is not None:
+    if analytic_beam_map is not None:
+        from hashlib import md5
+        ideal_tag = "idealT" if ideal_layout else "idealF"
+        map_hash = md5(str(analytic_beam_map).encode()).hexdigest()[:8]
+        tag = f"{tag}_analyticmap_{ideal_tag}_{map_hash}"
+    elif analytic_beam is not None:
         # Include beam class in filename for accessibility
         beam_dict = dict(analytic_beam)
         beam_tag = beam_dict['class'].replace('.', '_').replace('hera_sim_beams_', '')
@@ -301,6 +300,7 @@ def make_hera_obsparam(
     default_beam_file = None,		#default antenna beamfile (usually None since harcoded option in make_tele_config() to avoid breaking legacy code
     beamvar_type: str = 'beamdflt',
     analytic_beam: dict | None = None,
+    analytic_beam_map_file: Path | None = None,  
 ):
     """Create obsparam files (one per channel × chunk)"""
     freq_vals = utils.FREQS_DICT[season][channels]
@@ -363,7 +363,45 @@ def make_hera_obsparam(
     # If per-antenna beams provided, produce a copy of the layout with BeamID column
     # and remember the new path; otherwise keep legacy layout.
     analytic_beam_tuple = None
-    if analytic_beam is not None:
+    # Multi-beam analytic mode
+    if analytic_beam_map_file is not None:
+        from .anabeam_config import read_analytic_beam_map
+        beam_definitions, antenna_to_beamid = read_analytic_beam_map(analytic_beam_map_file)
+        default_bid = beam_definitions.pop("_default_beam_id", 0)
+        
+        # Convert to hashable tuple for @cache
+        beam_defs_hashable = []
+        for bid, params in beam_definitions.items():
+            params_tuple = tuple((k, tuple(v) if isinstance(v, list) else v) 
+                                  for k, v in sorted(params.items()))
+            beam_defs_hashable.append((bid, params_tuple))
+        analytic_beam_map_tuple = tuple(sorted(beam_defs_hashable))
+        
+        # Read layout to get antenna numbers, assign default bid to unlisted
+        with open(layout_file) as f:
+            lines = f.readlines()
+        header = lines[0].strip().split()
+        num_idx = header.index("Number")
+        
+        beamid_by_ant = {}
+        for line in lines[1:]:
+            parts = line.strip().split()
+            if parts:
+                ant = int(parts[num_idx])
+                beamid_by_ant[ant] = antenna_to_beamid.get(ant, default_bid)   
+        # Write layout with BeamID column
+        layout_file = write_array_with_beamids(layout_file, beamid_by_ant)
+        tele_config_file = make_tele_config(
+            freq_interp_kind=freq_interp_kind,
+            spline_interp_order=spline_interp_order,
+            beam_interpolator=beam_interpolator,
+            beam_map_csv=None,
+            default_beam_file=None,
+            beamvar_type=beamvar_type,
+            analytic_beam=None,
+            analytic_beam_map=analytic_beam_map_tuple,
+        )
+    elif analytic_beam is not None:
         # Convert nested lists to tuples for hashability
         analytic_beam_hashable = {}
         for k, v in analytic_beam.items():
@@ -372,9 +410,6 @@ def make_hera_obsparam(
             else:
                 analytic_beam_hashable[k] = v
         analytic_beam_tuple = tuple(sorted(analytic_beam_hashable.items()))
-        
-    if analytic_beam is not None:
-        # Analytical beam mode - ignore beam_map_csv
         tele_config_file = make_tele_config(
             freq_interp_kind=freq_interp_kind,
             spline_interp_order=spline_interp_order,
