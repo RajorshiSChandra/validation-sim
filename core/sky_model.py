@@ -319,7 +319,7 @@ def franzen_base() -> FranzenSourceCounts:
 def make_gleam_like_model(
     max_flux_density: float = 100.0,
     seed: int = 42,
-    mean_spectral_index: float = 0.8,
+    mean_spectral_index: float = -0.8,
     sigma_spectral_index: float = 0.05,
     nside: int = 256,
 ) -> SkyModel:
@@ -347,7 +347,7 @@ def make_gleam_like_model(
     seed: int, optional
         The random seed to use. The default is 42.
     mean_spectral_index: float, optional
-        The mean spectral index of the sources. The default is 0.8.
+        The mean spectral index of the sources. The default is -0.8.
     sigma_spectral_index: float, optional
         The standard deviation of the spectral index of the sources. The default is 0.05.
     nside: int, optional
@@ -360,6 +360,9 @@ def make_gleam_like_model(
         A SkyModel representing the GLEAM-like sources.
 
     """
+    if spectral_index > 0:
+        raise ValueError("Spectral index should be negative (i.e. it is not made negative by pyradiosky")
+        
     np.random.seed(seed)
     source_counts = (
         franzen_base()
@@ -387,6 +390,7 @@ def make_gleam_like_model(
     # Reference frequency is 154 MHz
     ref_freq = 154e6 * np.ones(nsources) * units.Hz
 
+        
     gl_model_params = {
         "name": names,
         "ra": ra,
