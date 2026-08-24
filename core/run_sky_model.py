@@ -15,11 +15,19 @@ def run_make_sky_model(
     split_freqs: bool = False,
     label: str = "",
     with_confusion: bool = True,
+    seed: int = 2038,
+    realization: str | None = None,
 ):
     """Run the sky model creation via SLURM."""
     model = f"{sky_model}{nside}"
     out_dir = utils.SKYDIR / f"{model}"
     logdir = utils.LOGDIR / f"skymodel/{model}"
+
+    # seed/realization only apply to grf-eor; appended to the re-invoked `--local`
+    # command so ptsrc/gsm/diffuse commands stay byte-identical.
+    extra = ""
+    if sky_model == "grf-eor":
+        extra = f" --seed {seed}" + (f" --realization '{realization}'" if realization else "")
 
     logdir.mkdir(parents=True, exist_ok=True)
 
@@ -61,7 +69,7 @@ def run_make_sky_model(
                 logger.warning(f"File {outfile} exists, skipping")
                 continue
 
-            cmd = f"time python vsim.py sky-model {sky_model} --local --nside {nside} --freq-range {fch} {fch+1} --label '{label}'"
+            cmd = f"time python vsim.py sky-model {sky_model} --local --nside {nside} --freq-range {fch} {fch+1} --label '{label}'{extra}"
 
             if utils.HPC_CONFIG["slurm"]:
                 # Write job script and submit
@@ -101,7 +109,7 @@ def run_make_sky_model(
             )
             for g in groups
         )
-        cmd = f"time python vsim.py sky-model {sky_model} --local --nside {nside} --label '{label}' {chan_opt}"
+        cmd = f"time python vsim.py sky-model {sky_model} --local --nside {nside} --label '{label}'{extra} {chan_opt}"
 
         if utils.HPC_CONFIG["slurm"]:
             # Write job script and submit

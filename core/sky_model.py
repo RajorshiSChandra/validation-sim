@@ -80,6 +80,7 @@ def dnds_franzen(s, a=None, norm=False):
 
 def make_grf_eor_model(
     model_file: str, channels: list[int], label: str = "",
+    seed: int = 2038, realization: str | None = None,
     offset_mode: str = "none",
     offset_value: float = 0.0,
     floor_epsilon: float = 1e-6,
@@ -89,8 +90,14 @@ def make_grf_eor_model(
     The model file is here assumed to contain Nfreqs healpix maps. The format of the
     file is custom, as defined by @zacharymartinot, and the sky map is created by
     his redshifted_gaussian_field code.
+
+    The raw realization is read from ``sky_models/raw/`` (where ``grf-realization``
+    writes it) — this removes the previous need to manually copy it into
+    ``sky_models/eor/``. Per-channel outputs are written to a seed-tagged realization
+    subfolder ``sky_models/eor-grf-{nside}{label}/{realization}/`` (default
+    ``realization='seed{seed}'``), which the simulator consumes via ``--sky-realization``.
     """
-    model_dir = utils.SKYDIR / "eor"
+    model_dir = utils.RAWSKYDIR
 
     with h5py.File(model_dir / model_file, "r") as fl:
         shape =  fl['healpix_maps'].shape
@@ -121,28 +128,74 @@ def make_grf_eor_model(
 
     eor_model = SkyModel(**params)
 
-    outdir = utils.SKYDIR / f"eor-grf-{nside}{label}"
+    # Seed-tagged realization subfolder (downstream-native: consumed via --sky-realization).
+    realization = realization or f"seed{seed}"
+    outdir = utils.SKYDIR / f"eor-grf-{nside}{label}" / realization
     outdir.mkdir(parents=True, exist_ok=True)
 
-    for fch in channels:
-        logger.info(f"Constructing channel {fch}")
-        with h5py.File(model_dir / model_file, 'r') as fl:
+    # Adding per frequency offsets to deal with negative pixel values in the GRF maps, which some simulators (e.g. Matvis) cannot handle. 
+    # for fch in channels:
+    #     logger.info(f"Constructing channel {fch}")
+    #     with h5py.File(model_dir / model_file, 'r') as fl:
             
-            hmaps = fl["healpix_maps"][fch]
+    #         hmaps = fl["healpix_maps"][fch]
             
-        # -----------------------------
-        # Apply offset if requested (required for Matvis type simulators yet unable to handle negative brightness pixel
-        # such as those arising from Gaussian realizations around 0 mean Jy/sr)
-        # -----------------------------
-        if offset_mode == "constant":
-            # Add a fixed offset in Jy/sr before attaching units
-            hmaps = hmaps + offset_value
-        elif offset_mode == "shift_min":
-            # Make all pixels >= floor_epsilon (Jy/sr).
+    #     # -----------------------------
+    #     # Apply offset if requested (required for Matvis type simulators yet unable to handle negative brightness pixel
+    #     # such as those arising from Gaussian realizations around 0 mean Jy/sr)
+    #     # -----------------------------
+    #     if offset_mode == "constant":
+    #         # Add a fixed offset in Jy/sr before attaching units
+    #         hmaps = hmaps + offset_value
+    #     elif offset_mode == "shift_min":
+    #         # Make all pixels >= floor_epsilon (Jy/sr).
+    #         min_val = np.min(hmaps)
+    #         if min_val < floor_epsilon:
+    #             shift = floor_epsilon - min_val
+    #             hmaps = hmaps + shift
+
+    #     hmaps <<= units.Jy / units.sr
+
+    #     eor_model.stokes[0, 0] = hmaps
+    #     eor_model.freq_array[0] = freqs[fch]
+
+    #     eor_model.write_skyh5(outdir / f"fch{fch:04d}.skyh5", clobber=True)
+    
+    
+    # Adding global offset for all frequencies to deal with negative pixel values in the GRF maps, which some simulators (e.g. Matvis) cannot handle. No per-channel shifts to avoid adding spurious spectral structure.
+    global_shift = 0.0  
+
+    if offset_mode == "shift_min":
+        shift_per_fch = []
+        for fch in channels:
+            with h5py.File(model_dir / model_file, "r") as fl:
+                hmaps = fl["healpix_maps"][fch]
+
             min_val = np.min(hmaps)
             if min_val < floor_epsilon:
-                shift = floor_epsilon - min_val
-                hmaps = hmaps + shift
+                shift_per_fch.append(floor_epsilon - min_val)
+            else:
+                shift_per_fch.append(0.0)
+
+        # Use the largest per-channel shift so every channel becomes >= floor_epsilon
+        global_shift = np.max(shift_per_fch)
+        logger.info(
+            f"shift_min: per-channel shifts range "
+            f"[{np.min(shift_per_fch):.6e}, {np.max(shift_per_fch):.6e}] Jy/sr  —  "
+            f"applying constant global_shift = {global_shift:.6e} Jy/sr"
+        )
+
+    # apply the offset and write each channel
+    for fch in channels:
+        logger.info(f"Constructing channel {fch}")
+        with h5py.File(model_dir / model_file, "r") as fl:
+            hmaps = fl["healpix_maps"][fch]
+
+        # Apply offset (required for simulators unable to handle negative brightness)
+        if offset_mode == "constant":
+            hmaps = hmaps + offset_value
+        elif offset_mode == "shift_min":
+            hmaps = hmaps + global_shift
 
         hmaps <<= units.Jy / units.sr
 

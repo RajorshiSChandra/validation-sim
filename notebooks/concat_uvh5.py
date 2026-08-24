@@ -4,6 +4,11 @@ from pyuvdata import UVData
 import hera_pspec as hp   # hp.utils.get_reds
 
 # ------------------------------------------------------------------
+# HOW TO RUN :
+# nohup python notebooks/concat_uvh5.py > FILENAME.log 2>&1 &
+# ------------------------------------------------------------------
+
+# ------------------------------------------------------------------
 # USER INPUTS
 # ------------------------------------------------------------------
 
@@ -11,57 +16,79 @@ BASE_OUTDIR= Path("/lustre/aoc/projects/hera/rchandra/H6C_Validation_Stats/valid
 # / "ptsrc256/nt17280-00288chunks-HERA_custom_subset_idealF_cba81417555edaffd87557575713cb61.txt-nonred_airyprb"
 # / "ptsrc256/nt17280-00288chunks-HERA_custom_subset_cba81417555edaffd87557575713cb61.txt-nonred"
 
-# PTSRC SKY
+# PTSRC SKY =============================================
 
-# Airy
+# Airy######################
 # ideal ENU, ideal Airy                               airyred, idealT
 # MODEL_DIR   = Path("ptsrc256/nt17280-00288chunks-HERA_custom_subset_idealT_cba81417555edaffd87557575713cb61.txt-nonred_airyred")
 # real ENU, ideal Airy                                airyred, idealF
 # MODEL_DIR   = Path("ptsrc256/nt17280-00288chunks-HERA_custom_subset_idealF_cba81417555edaffd87557575713cb61.txt-nonred_airyred")
+
 # ideal ENU, diameter Airy var (deltaD ~ <.2m)        airyprb, idealT
 # MODEL_DIR   = Path("ptsrc256/nt17280-00288chunks-HERA_custom_subset_idealT_cba81417555edaffd87557575713cb61.txt-nonred_airyprb")
 # real ENU, diameter Airy var (deltaD ~ <.2m)         airyprb, idealF
 # MODEL_DIR   = Path("ptsrc256/nt17280-00288chunks-HERA_custom_subset_idealF_cba81417555edaffd87557575713cb61.txt-nonred_airyprb")
+
 # ideal ENU, tilt Airy var (deltZa ~ 2-3 degree)      airytilt, idealT
 # MODEL_DIR   = Path("ptsrc256/nt17280-00288chunks-HERA_custom_subset_idealT_cba81417555edaffd87557575713cb61.txt-nonred_airytilt")
 # real ENU, tilt Airy var (deltZa ~ 2-3 degree)       airytilt, idealF
 # MODEL_DIR   = Path("ptsrc256/nt17280-00288chunks-HERA_custom_subset_idealF_cba81417555edaffd87557575713cb61.txt-nonred_airytilt")
 
-# Vivaldi
+# Vivaldi###################
 # ideal ENU, ideal Vivaldi       vivaldired, idealT
 # MODEL_DIR   = Path("ptsrc256/nt17280-00288chunks-HERA_custom_subset_idealT_cba81417555edaffd87557575713cb61.txt-nonred_vivaldired")
 # real ENU, ideal Vivaldi       vivaldired, idealF
 # MODEL_DIR   = Path("ptsrc256/nt17280-00288chunks-HERA_custom_subset_idealF_cba81417555edaffd87557575713cb61.txt-nonred_vivaldired")
 
 
-# EOR SKY
+# EOR SKY =============================================
 
+# Airy######################
 # ideal ENU, ideal Airy                               airyred, idealT
 # MODEL_DIR   = Path("eor-grf-256/nt17280-00288chunks-HERA_custom_subset_idealT_cba81417555edaffd87557575713cb61.txt-nonred_airyred")
+MODEL_DIR   = Path("eor-grf-256/nt17280-00288chunks-HERA_custom_subset_idealT_cba81417555edaffd87557575713cb61.txt.beam_map_10_airy.9105a7bf._beammapperant_airyred-nonred_airyred/")
 # real ENU, ideal Airy                                airyred, idealF
-MODEL_DIR   = Path("eor-grf-256/nt17280-00288chunks-HERA_custom_subset_idealF_cba81417555edaffd87557575713cb61.txt-nonred_airyred")
+# MODEL_DIR   = Path("eor-grf-256/nt17280-00288chunks-HERA_custom_subset_idealF_cba81417555edaffd87557575713cb61.txt-nonred_airyred")
 
 # ideal ENU, tilt Airy var (deltZa ~ 2-3 degree)       airytilt, idealT
 # MODEL_DIR   = Path("eor-grf-256/nt17280-00288chunks-HERA_custom_subset_idealT_cba81417555edaffd87557575713cb61.txt-nonred_airytilt")
 # real ENU, tilt Airy var (deltZa ~ 2-3 degree)       airytilt, idealF
 # MODEL_DIR   = Path("eor-grf-256/nt17280-00288chunks-HERA_custom_subset_idealF_cba81417555edaffd87557575713cb61.txt-nonred_airytilt")
 
-# Vivaldi
+# Vivaldi###################
 # ideal ENU, ideal Vivaldi       vivaldired, idealT
 # MODEL_DIR   = Path("eor-grf-256/nt17280-00288chunks-HERA_custom_subset_idealT_cba81417555edaffd87557575713cb61.txt-nonred_vivaldired")
 # real ENU, ideal Vivaldi       vivaldired, idealF
 # MODEL_DIR   = Path("eor-grf-256/nt17280-00288chunks-HERA_custom_subset_idealF_cba81417555edaffd87557575713cb61.txt-nonred_vivaldired")
 
+# EOR Noisy =============================================
+
+# ideal ENU, ideal Airy                               airyred, idealT
+# MODEL_DIR   = Path("eor-grf-256-noisy/nt17280-00288chunks-HERA_custom_subset_idealT_cba81417555edaffd87557575713cb61.txt-nonred_airyred")
+# MODEL_DIR   = Path("eor-grf-256-noisy/nt17280-00288chunks-HERA_custom_subset_idealT_cba81417555edaffd87557575713cb61.txt.beam_map_10_airy.9105a7bf._beammapperant_airyred-nonred_airyred/")
+# MODEL_DIR   = Path("eor-grf-256-noisy-2x/nt17280-00288chunks-HERA_custom_subset_idealT_cba81417555edaffd87557575713cb61.txt.beam_map_10_airy.9105a7bf._beammapperant_airyred-nonred_airyred/")
+# MODEL_DIR   = Path("eor-grf-256-noisy-correct-beam/nt17280-00288chunks-HERA_custom_subset_idealT_cba81417555edaffd87557575713cb61.txt.beam_map_10_airy.9105a7bf._beammapperant_airyred-nonred_airyred/")
+# MODEL_DIR   = Path("eor-grf-256-noisy-D7m-airy/nt17280-00288chunks-HERA_custom_subset_idealT_cba81417555edaffd87557575713cb61.txt.beam_map_10_D7m_airy.5cfe1b35._beammapperant_airyred-nonred_airyred/")
+# real ENU, ideal Airy                                airyred, idealF
+# MODEL_DIR   = Path("eor-grf-256-noisy/nt17280-00288chunks-HERA_custom_subset_idealF_cba81417555edaffd87557575713cb61.txt-nonred_airyred")
+
+# PTSRC Noisy =============================================
+
+# PURE Noise =============================================
+
+# MODEL_DIR   = Path("noise-only-300k/nt17280-00288chunks-HERA_custom_subset_idealT_cba81417555edaffd87557575713cb61.txt.beam_map_10_airy.9105a7bf._beammapperant_airyred-nonred_airyred/")
+
 
 DATA_PATH = BASE_OUTDIR / MODEL_DIR
+print("DATA_PATH ", DATA_PATH)
 
 fch_min, fch_max = 227, 315          # inclusive channel range
-chunk_min, chunk_max = 0, 11         # inclusive chunk range
+chunk_min, chunk_max = 0, 47         # inclusive chunk range
 
-bl_len = 14.0                        # target baseline length [m]
+bl_len = 28.0                        # target baseline length [m]
 bl_ang = 0.0                         # target angle [deg], e.g. EW group
 
-len_tol = 1.0                       # ± length tolerance [m]
+len_tol = 2.0                       # ± length tolerance [m]
 ang_tol = 5.0                        # ± angle tolerance [deg]
 
 pol_in = "xx"                        # one of {"xx", "yy", "xy", "yx"}
@@ -99,7 +126,7 @@ print("Nants_data:", uvd_meta.Nants_data, "Nbls:", uvd_meta.Nbls)
 
 red_bls, lens, angs = hp.utils.get_reds(
     uvd_meta,
-    bl_error_tol=1.0,
+    bl_error_tol=2.0,
     add_autos=True,                  # autos included in grouping
     bl_len_range=(10.0, 100.0),      # broad range
     bl_deg_range=(0.0, 180.0),
@@ -228,6 +255,7 @@ tag_stem = (
     f"{ideal_tag}_{airy_tag}"
     f"_fch{fch_min:04d}-{fch_max:04d}"
     f"_ck{chunk_min:05d}-{chunk_max:05d}"
+    f"_bl{bl_len:.1f}m"
 )
 
 cross_outfile = DATA_PATH / f"uvd_cross_{tag_stem}.uvh5"

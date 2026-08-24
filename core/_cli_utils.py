@@ -122,7 +122,6 @@ class opts:
         nargs=2,
         help="Frequency range to include (in MHz)",
     )
-
     sky_model = click.option(
         "-sm",
         "--sky-model",
@@ -133,6 +132,13 @@ class opts:
             case_sensitive=True,
         ),
         help="Sky model to simulate",
+    )
+    sky_realization = click.option(
+        "--sky-realization",
+        default=None,
+        type=str,
+        help="Subfolder within the sky model directory containing the .skyh5 files "
+            "(e.g. 'rlzn_seed_111_offsetfix_spatmean_pwlw')",
     )
     n_time_chunks = click.option(
         "--n-time-chunks",

@@ -1,13 +1,17 @@
 """Functions for creating obsparam files."""
 
+import logging
 from functools import cache
 from hashlib import md5
 from pathlib import Path
 import yaml
 import numpy as np
 import re
+import hashlib
 
 from . import utils
+
+logger = logging.getLogger(__name__)
 
 H4C_FREQS = utils.FREQS_DICT["H4C"]
 CFGDIR, SKYDIR, OUTDIR = utils.CFGDIR, utils.SKYDIR, utils.OUTDIR
@@ -34,6 +38,44 @@ def read_beam_map_csv(beam_map_csv: Path) -> dict[int, Path]:
     if not mapping:
         raise ValueError("beam_map_csv was empty.")
     return mapping
+
+
+def count_unique_beam_files(beam_map_csv: Path) -> int:
+    """Number of distinct (resolved) beam files referenced by a beam-map CSV."""
+    return len(set(read_beam_map_csv(beam_map_csv).values()))
+
+
+def gate_beam_map_for_simulator(beam_map_csv, simulator, *, context: str = ""):
+    """Gate per-antenna beam maps by simulator capability.
+
+    - matvis : any number of beams (true per-antenna).
+    - fftvis : hera_sim FFTVis supports only ONE beam for the whole array
+               (FFTVis.validate raises 'FFTVis only supports a single beam.').
+               A CSV that resolves to exactly one unique file is allowed
+               (single-beam array); >1 distinct beams raises a clear error
+               rather than silently falling back to the default beam.
+
+    Returns the (unchanged) beam_map_csv, or raises ValueError.
+    """
+    if beam_map_csv is None:
+        return None
+    is_matvis = isinstance(simulator, str) and simulator.lower().startswith("matvis")
+    if is_matvis:
+        return beam_map_csv
+    n = count_unique_beam_files(beam_map_csv)
+    if n == 1:
+        logger.info(
+            "%s --beam-map-csv resolves to a single unique beam; "
+            "accepted for simulator=%r (single-beam array).",
+            context, simulator,
+        )
+        return beam_map_csv
+    raise ValueError(
+        f"{context} --beam-map-csv maps antennas to {n} distinct beam files, but "
+        f"simulator={simulator!r} supports only a single beam for the whole array. "
+        f"Use --simulator matvis for per-antenna beams, or supply a single-beam CSV "
+        f"(or --analytic-beam-*)."
+    )
 
 
 #def write_array_with_beamids(src_layout: Path, beamid_by_ant: dict[int, int]) -> Path:
@@ -319,6 +361,7 @@ def make_hera_obsparam(
     beamvar_type: str = 'beamdflt',
     analytic_beam: dict | None = None,
     analytic_beam_map_file: Path | None = None,  
+    sky_realization: str | None = None,
 ):
     """Create obsparam files (one per channel × chunk)"""
     freq_vals = utils.FREQS_DICT[season][channels]
@@ -333,6 +376,13 @@ def make_hera_obsparam(
         assert all(x < chunks for x in do_chunks)
     print(do_chunks)
     Ntimes_per_chunk = NTIMES // chunks
+
+
+    # Build the sky catalog path
+    if sky_realization:
+        sky_subdir = f"{sky_model}/{sky_realization}"
+    else:
+        sky_subdir = sky_model
 
 #    if isinstance(layout, str):
 #    	# it's a namey
@@ -491,8 +541,11 @@ def make_hera_obsparam(
         )
     ####################################################################################
 
+    sky_model_key = f"{sky_model}/{sky_realization}" if sky_realization else sky_model
+    print("sky_model_key is ", sky_model_key)
+
     modeldir = utils.get_direc(
-        sky_model=sky_model,
+        sky_model=sky_model_key,
         chunks=chunks,
         layout=layout_file.stem,
         redundant=redundant,
@@ -549,7 +602,7 @@ def make_hera_obsparam(
                     "channel_width": float(utils.FREQS_DICT[season][1] - utils.FREQS_DICT[season][0]),
                     "start_freq": float(fv),
                 },
-                "sources": {"catalog": f"{SKYDIR}/{sky_model}/fch{fch:04d}.skyh5"},
+                "sources": {"catalog": f"{SKYDIR}/{sky_subdir}/fch{fch:04d}.skyh5"},
                 "telescope": {
                     "array_layout": f"{layout_file}",
                     "telescope_config_name": f"{tele_config_file}",

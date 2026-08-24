@@ -10,6 +10,7 @@ from rich.logging import RichHandler
 from core import _cli_utils as _cli
 from core import utils
 from core.anabeam_config import build_analytic_beam_config
+from core.obsparams import gate_beam_map_for_simulator
 logging.basicConfig(
     level="NOTSET",
     format="%(message)s",
@@ -96,20 +97,15 @@ def runsim(layout, ants, channels, freq_range,
         beamvar_type = None
         logger.info(f"Using analytical beam: {analytic_beam_class}")
 
-    # matvis-only gate for per-antenna beams
-    # sim = kwargs.get("simulator", "matvis")
-    # beam_map_csv = kwargs.get("beam_map_csv", None)
-    sim = simulator
-    is_matvis = isinstance(sim, str) and sim.lower().startswith("matvis")
-    if beam_map_csv is not None and not is_matvis:
-        logger.warning("[runsim] --beam-map-csv supplied but simulator=%r is not matvis; "
-                       "ignoring per-antenna beams and falling back to single-beam teleconfig.",
-                       sim)
-        # kwargs.pop("beam_map_csv", None)
-        beam_map_csv = None
+    # Gate per-antenna beams by simulator capability: matvis allows any number of
+    # beams; fftvis allows a single-unique-beam CSV (one beam for the whole array)
+    # and errors on genuinely per-antenna (multi-beam) CSVs.
+    beam_map_csv = gate_beam_map_for_simulator(beam_map_csv, simulator, context="[runsim]")
 
     if "beam_interpolator" in kwargs:
         kwargs.pop("beam_interpolator")
+
+    # sky_realization = kwargs.pop("sky_realization", None)
 
     run_validation_sim(
         layout=layout, 
@@ -130,6 +126,7 @@ def runsim(layout, ants, channels, freq_range,
 @_cli.opts.channels
 @_cli.opts.freq_range
 @_cli.opts.sky_model
+@_cli.opts.sky_realization  
 @_cli.opts.n_time_chunks
 @_cli.opts.spline_interp_order
 @_cli.opts.redundant
@@ -154,7 +151,7 @@ def runsim(layout, ants, channels, freq_range,
 # Analytical beam options end
 
 def make_obsparams(
-    layout, ants, ideal_layout, freq_range, channels, sky_model, n_time_chunks, 
+    layout, ants, ideal_layout, freq_range, channels, sky_model, sky_realization, n_time_chunks, 
     spline_interp_order, beam_interpolator, redundant, do_time_chunks,
     simulator, beam_map_csv, beamvar_type, 
     # analytical beam params
@@ -191,13 +188,8 @@ def make_obsparams(
         beam_map_csv = None
         logger.info(f"Using analytical beam: {analytic_beam_class}")
     
-    # matvis-only gate for per-antenna beams (give helpful message early)
-    is_matvis = isinstance(simulator, str) and simulator.lower().startswith("matvis")
-    if beam_map_csv is not None and not is_matvis:
-        logger.warning("[make-obsparams] --beam-map-csv supplied but simulator=%r is not matvis; "
-                       "ignoring per-antenna beams and emitting single-beam teleconfig.",
-                       simulator)
-        beam_map_csv = None
+    # Gate per-antenna beams by simulator capability (give a helpful error early).
+    beam_map_csv = gate_beam_map_for_simulator(beam_map_csv, simulator, context="[make-obsparams]")
          
     # ants-layout test
     print("do_time_chunks are ", do_time_chunks)
@@ -220,7 +212,8 @@ def make_obsparams(
 #        simulator=simulator,
         beam_map_csv=beam_map_csv,
         beamvar_type=beamvar_type,
-        analytic_beam=analytic_beam
+        analytic_beam=analytic_beam,
+        sky_realization=sky_realization,
     )
 
 # print("test 349678")
@@ -239,6 +232,13 @@ option_nside = click.option("--nside", default=256, show_default=True)
 @click.option("--split-freqs/--no-split-freqs", default=False)
 @click.option("--label", default="")
 @click.option("--with-confusion/--no-confusion", default=True)
+@click.option("--seed", type=int, default=2038, show_default=True,
+              help="GRF realization seed (grf-eor only); selects which raw realization to read. "
+                   "Must match the seed passed to `grf-realization`.")
+@click.option("--realization", default=None,
+              help="Name of the output realization subfolder (grf-eor only). Defaults to "
+                   "'seed{seed}'. Override to reproduce richer names, e.g. "
+                   "rlzn_seed_222_offsetfix_freqslic_grf.")
 def sky_model(
     sky_model,
     freq_range,
@@ -251,6 +251,8 @@ def sky_model(
     dry_run,
     label,
     with_confusion,
+    seed,
+    realization,
 ):
     """Make SkyModel at given frequencies.
 
@@ -270,9 +272,13 @@ def sky_model(
             sm.make_ptsrc_model(channels, nside, label=label)
         elif sky_model == "grf-eor":
             sm.make_grf_eor_model(
-                f"healpix-maps{nside}{label}.h5",
+                # f"healpix-maps{nside}{label}.h5",
+                # Seed-tagged raw realization in sky_models/raw/ (read there directly; no copy).
+                f"eor-grf-nside{nside}_seed{seed}.h5",
                 channels=channels,
                 label=label,
+                seed=seed,
+                realization=realization,
                 # offset_mode="constant", offset_value=1e-5,
                 offset_mode="shift_min", floor_epsilon=1e-6,
             )
@@ -290,8 +296,10 @@ def sky_model(
             split_freqs=split_freqs,
             label=label,
             with_confusion=with_confusion,
+            seed=seed,
+            realization=realization,
         )
-
+    
 @cli.command
 @click.option('--nside', type=int, required=True)
 @click.option('--seed', type=int, default=2038)
@@ -318,6 +326,7 @@ def grf_covariance(test_mode, ell_max, local):
         
 @cli.command("cornerturn")
 @_cli.opts.sky_model
+@_cli.opts.sky_realization
 @click.option("-c", "--time-chunk", default=0)
 @click.option("-n", "--new-chunk-size", default=2)
 @click.option("--nchunks-sim", default=3, type=int)
@@ -342,6 +351,7 @@ def grf_covariance(test_mode, ell_max, local):
 @_cli.opts.prefix
 def cornerturn(
     sky_model,
+    sky_realization,
     time_chunk,
     slurm_override,
     new_chunk_size,
@@ -367,14 +377,16 @@ def cornerturn(
     """
     logger.setLevel(log_level)
 
+    sky_model_key = f"{sky_model}/{sky_realization}" if sky_realization else sky_model
+
     # Make sure that the slurm log directory exists.
     # Otherwise, the job will terminate
-    log_dir = Path(f"logs/chunk/{sky_model}")
+    log_dir = Path(f"logs/chunk/{sky_model_key}")
     log_dir.mkdir(parents=True, exist_ok=True)
 
     if direc is None:
         simdir = utils.OUTDIR / utils.get_direc(
-            sky_model=sky_model, chunks=nchunks_sim, layout=layout,
+            sky_model=sky_model_key, chunks=nchunks_sim, layout=layout,
             redundant=redundant, prefix=prefix,
         )
     else:
@@ -422,7 +434,7 @@ def cornerturn(
     --r-prototype "fch{{channel:04d}}_chunk{time_chunk:05d}.uvh5" \
     --chunk-size {new_chunk_size} \
     --channels {channels} \
-    --sky-cmp {sky_model}\
+    --sky-cmp {sky_model_key}\
     --assume-same-blt-layout \
     --is-rectangular \
     --nthreads 16 \
@@ -435,7 +447,7 @@ def cornerturn(
     sbatch_dir = utils.REPODIR / "batch_scripts/rechunk"
     sbatch_dir.mkdir(parents=True, exist_ok=True)
 
-    sbatch_file = sbatch_dir / f"{sky_model}_ch{time_chunk:03d}_{layout}.sbatch"
+    sbatch_file = sbatch_dir / f"{sky_model_key}_ch{time_chunk:03d}_{layout}.sbatch"
 
     sbatch = "\n".join([sbatch, "", cmd, ""])
     with open(sbatch_file, "w") as fl:

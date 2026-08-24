@@ -4,7 +4,7 @@ import logging
 import subprocess
 import yaml
 from importlib.metadata import version
-from core.obsparams import make_hera_obsparam
+from core.obsparams import make_hera_obsparam, gate_beam_map_for_simulator
 from pathlib import Path
 from . import utils
 from ._cli_utils import _get_sbatch_program
@@ -51,7 +51,8 @@ def run_validation_sim(
     beam_map_csv: Path | None = None,
     beamvar_type: str = 'beamdflt',
     analytic_beam: tuple | None = None,
-    analytic_beam_map_file: Path | None = None
+    analytic_beam_map_file: Path | None = None,
+    sky_realization: str | None = None,
 ):
     """Run a full validation sim on SLURM compute."""
     sgpu = "gpu" if gpu else "cpu"
@@ -66,15 +67,11 @@ def run_validation_sim(
 
     logger.info(f"Frequency channels to run: {channels}")
 
-    # ---- Gate per-antenna beams to matvis-only (incl. matvis-cpu from CLI) ----
-    is_matvis = isinstance(simulator, str) and simulator.lower().startswith("matvis")
-    if beam_map_csv is not None and not is_matvis:
-        logger.warning(
-            "[run_validation_sim] Per-antenna beams requested via %s, "
-            "but simulator=%r is not matvis; ignoring and using single-beam teleconfig.",
-            beam_map_csv, simulator
-        )
-        beam_map_csv = None
+    # ---- Gate per-antenna beams by simulator capability ----
+    # matvis: any number of beams; fftvis: only a single unique beam (else error).
+    beam_map_csv = gate_beam_map_for_simulator(
+        beam_map_csv, simulator, context="[run_validation_sim]"
+    )
 
     layout_file = make_hera_obsparam(
         layout=layout,
@@ -93,7 +90,8 @@ def run_validation_sim(
         beam_map_csv=beam_map_csv,
         beamvar_type=beamvar_type,
         analytic_beam=analytic_beam,
-        analytic_beam_map_file=analytic_beam_map_file
+        analytic_beam_map_file=analytic_beam_map_file,
+        sky_realization=sky_realization,
     )
     if not layout_file.exists():
         raise ValueError(f"Error in creating layout file: {layout_file}")
@@ -110,10 +108,13 @@ def run_validation_sim(
     time_est = calculate_expected_time(n_time_chunks)
 
     print("layout_file is ", layout_file)
+    
+    sky_model_key = f"{sky_model}/{sky_realization}" if sky_realization else sky_model
+    print("sky_model_key is ", sky_model_key)
     # Use 1 to ensure latest layout file reflects in directory name
     # 1
     modeldir = utils.get_direc(
-        sky_model=sky_model, chunks=n_time_chunks, layout=effective_layout_key, redundant=redundant, prefix=prefix, 
+        sky_model=sky_model_key, chunks=n_time_chunks, layout=effective_layout_key, redundant=redundant, prefix=prefix, 
         beamvar_type=beamvar_type,
     )
     # 2

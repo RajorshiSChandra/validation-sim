@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 def read_analytic_beam_map(map_file: Path) -> tuple[dict[int, dict], dict[int, int]]:
     """
